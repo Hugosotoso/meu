@@ -1,0 +1,13 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Portal N2</string>
+
+    <!-- Depois de publicar na Vercel, troque somente esta URL. Use HTTPS. -->
+    <string name="web_app_url" translatable="false">https://seu-projeto.vercel.app</string>
+
+    <string name="error_title">Não foi possível abrir o Portal N2</string>
+    <string name="error_message">Verifique sua conexão e tente novamente.</string>
+    <string name="configuration_message">Publique o site e substitua a URL de exemplo em res/values/strings.xml.</string>
+    <string name="retry">Tentar novamente</string>
+</resources>
+
