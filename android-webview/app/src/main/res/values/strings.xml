@@ -9,5 +9,5 @@
     <string name="error_message">Verifique sua conexão e tente novamente.</string>
     <string name="configuration_message">Publique o site e substitua a URL de exemplo em res/values/strings.xml.</string>
     <string name="retry">Tentar novamente</string>
+    <string name="print_job_name">Documento Portal N2</string>
 </resources>
-

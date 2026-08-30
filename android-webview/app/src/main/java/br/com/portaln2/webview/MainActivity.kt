@@ -1,15 +1,22 @@
 package br.com.portaln2.webview
 
 import android.annotation.SuppressLint
+import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.content.pm.PackageManager
+import android.print.PrintAttributes
+import android.print.PrintManager
 import android.view.View
 import android.webkit.CookieManager
+import android.webkit.GeolocationPermissions
+import android.webkit.JavascriptInterface
 import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
@@ -29,6 +36,13 @@ class MainActivity : Activity() {
     private lateinit var errorPanel: View
     private lateinit var errorMessage: TextView
     private var allowedHost: String? = null
+    private val printWebViews = mutableListOf<WebView>()
+    private var pendingGeolocationOrigin: String? = null
+    private var pendingGeolocationCallback: GeolocationPermissions.Callback? = null
+
+    companion object {
+        private const val LOCATION_PERMISSION_REQUEST = 2001
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,6 +83,7 @@ class MainActivity : Activity() {
             allowContentAccess = false
             javaScriptCanOpenWindowsAutomatically = false
             setSupportMultipleWindows(false)
+            setGeolocationEnabled(true)
             mixedContentMode = WebSettings.MIXED_CONTENT_NEVER_ALLOW
             cacheMode = WebSettings.LOAD_DEFAULT
             mediaPlaybackRequiresUserGesture = true
@@ -86,10 +101,41 @@ class MainActivity : Activity() {
             setAcceptThirdPartyCookies(webView, false)
         }
 
+        webView.addJavascriptInterface(PrintBridge(), "PortalN2Android")
+
         webView.webChromeClient = object : WebChromeClient() {
             override fun onProgressChanged(view: WebView?, newProgress: Int) {
                 progress.progress = newProgress
                 progress.visibility = if (newProgress < 100) View.VISIBLE else View.GONE
+            }
+
+            override fun onGeolocationPermissionsShowPrompt(
+                origin: String,
+                callback: GeolocationPermissions.Callback,
+            ) {
+                val originUri = Uri.parse(origin)
+                val origemPermitida = originUri.scheme == "https" &&
+                    originUri.host?.lowercase(Locale.ROOT) == allowedHost
+
+                if (!origemPermitida) {
+                    callback.invoke(origin, false, false)
+                    return
+                }
+
+                if (temPermissaoDeLocalizacao()) {
+                    callback.invoke(origin, true, false)
+                    return
+                }
+
+                pendingGeolocationOrigin = origin
+                pendingGeolocationCallback = callback
+                requestPermissions(
+                    arrayOf(
+                        Manifest.permission.ACCESS_FINE_LOCATION,
+                        Manifest.permission.ACCESS_COARSE_LOCATION,
+                    ),
+                    LOCATION_PERMISSION_REQUEST,
+                )
             }
         }
 
@@ -135,6 +181,67 @@ class MainActivity : Activity() {
 
         webView.setDownloadListener { url, _, _, _, _ ->
             abrirForaDoApp(Uri.parse(url))
+        }
+    }
+
+    private fun temPermissaoDeLocalizacao(): Boolean =
+        checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION) == PackageManager.PERMISSION_GRANTED ||
+            checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION) == PackageManager.PERMISSION_GRANTED
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<out String>,
+        grantResults: IntArray,
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode != LOCATION_PERMISSION_REQUEST) return
+
+        val origin = pendingGeolocationOrigin
+        val callback = pendingGeolocationCallback
+        if (origin != null && callback != null) {
+            callback.invoke(origin, temPermissaoDeLocalizacao(), false)
+        }
+        pendingGeolocationOrigin = null
+        pendingGeolocationCallback = null
+    }
+
+    private inner class PrintBridge {
+        @JavascriptInterface
+        fun printHtml(html: String) {
+            runOnUiThread {
+                val printWebView = WebView(this@MainActivity)
+                var enviadoParaImpressao = false
+
+                printWebView.settings.apply {
+                    javaScriptEnabled = false
+                    allowFileAccess = false
+                    allowContentAccess = false
+                }
+
+                printWebView.webViewClient = object : WebViewClient() {
+                    override fun onPageFinished(view: WebView, url: String?) {
+                        if (enviadoParaImpressao) return
+                        enviadoParaImpressao = true
+
+                        val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
+                        val adapter = view.createPrintDocumentAdapter(getString(R.string.app_name))
+                        printManager.print(
+                            getString(R.string.print_job_name),
+                            adapter,
+                            PrintAttributes.Builder().build(),
+                        )
+                    }
+                }
+
+                printWebViews.add(printWebView)
+                printWebView.loadDataWithBaseURL(
+                    null,
+                    html,
+                    "text/html",
+                    "UTF-8",
+                    null,
+                )
+            }
         }
     }
 
@@ -222,10 +329,12 @@ class MainActivity : Activity() {
 
     override fun onDestroy() {
         webView.stopLoading()
+        webView.removeJavascriptInterface("PortalN2Android")
         webView.webChromeClient = null
         webView.webViewClient = WebViewClient()
         webView.destroy()
+        printWebViews.forEach { it.destroy() }
+        printWebViews.clear()
         super.onDestroy()
     }
 }
-
