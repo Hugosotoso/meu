@@ -2,29 +2,15 @@
  * Super App Gov — Logística / Gestão de Frota (MAPA, TECLADO RESPONSIVO E HISTÓRICO)
  * Ficheiro: src/app/logistica/frota.tsx
  */
-
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, TextInput, Alert, ActivityIndicator, Platform, KeyboardAvoidingView } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { supabase } from '../../lib/supabase';
+import FrotaMap from '../../components/FrotaMap';
 import PrioritySelector from '../../components/PrioritySelector';
 import { CORES_PRIORIDADE, prioridadeSegura, Prioridade } from '../../lib/workflow';
-
-// 🛡️ IMPORTAÇÃO DINÂMICA DO MAPA
-let MapView: any = null;
-let Marker: any = null;
-
-if (Platform.OS !== 'web') {
-  try {
-    const Maps = require('react-native-maps');
-    MapView = Maps.default;
-    Marker = Maps.Marker;
-  } catch (e) {
-    console.log("react-native-maps não suportado neste ambiente.");
-  }
-}
 
 const G_COLORS = { azulPrincipal: '#1351B4', azulEscuro: '#0C3789', branco: '#FFFFFF', cinzaFundo: '#F0F2F5', textoPreto: '#1A1A1A', cinzaTexto: '#555A60', ouro: '#FFCD00', cinzaBorda: '#E0E0E0', verde: '#10b981', laranja: '#F59E0B', vermelho: '#EF4444' };
 
@@ -169,28 +155,9 @@ export default function FrotaScreen() {
             </View>
           </View>
 
-          {/* 🗺️ MAPA AO VIVO DO GOOGLE/APPLE MAPS */}
+          {/* 🗺️ MAPA COM IMPLEMENTAÇÃO SEPARADA PARA WEB E NATIVO */}
           <Text style={styles.sectionTitle}>Ponto de Embarque (GPS)</Text>
-          <View style={styles.mapContainer}>
-            {Platform.OS === 'web' && localizacao ? (
-              React.createElement('iframe', {
-                title: 'Mapa do ponto de embarque',
-                src: `https://www.openstreetmap.org/export/embed.html?bbox=${localizacao.longitude - 0.01}%2C${localizacao.latitude - 0.01}%2C${localizacao.longitude + 0.01}%2C${localizacao.latitude + 0.01}&layer=mapnik&marker=${localizacao.latitude}%2C${localizacao.longitude}`,
-                style: { width: '100%', height: '100%', border: 0 },
-              })
-            ) : Platform.OS !== 'web' && MapView && localizacao ? (
-              <MapView style={styles.mapa} initialRegion={localizacao} showsUserLocation={true}>
-                <Marker coordinate={localizacao} title="Sua Localização Atual" pinColor={G_COLORS.azulPrincipal} />
-              </MapView>
-            ) : (
-              <View style={styles.loadingMap}>
-                <MaterialIcons name={Platform.OS === 'web' ? "desktop-windows" : "satellite"} size={40} color={G_COLORS.azulPrincipal} />
-                <Text style={{ marginTop: 10, color: G_COLORS.cinzaTexto, textAlign: 'center', fontSize: 12 }}>
-                  {Platform.OS === 'web' ? 'Permita o acesso à localização para exibir o mapa.' : 'Buscando satélites GPS...'}
-                </Text>
-              </View>
-            )}
-          </View>
+          <FrotaMap localizacao={localizacao} />
 
           {/* FORMULÁRIO DE SOLICITAÇÃO (VISUAL MELHORADO) */}
           <Text style={styles.sectionTitle}>Nova Solicitação</Text>
@@ -294,10 +261,6 @@ const styles = StyleSheet.create({
   
   sectionTitle: { fontSize: 16, fontWeight: '800', color: G_COLORS.azulEscuro, marginBottom: 12, marginLeft: 4 },
   
-  mapContainer: { height: 160, borderRadius: 12, overflow: 'hidden', marginBottom: 25, borderWidth: 1, borderColor: G_COLORS.cinzaBorda, backgroundColor: G_COLORS.branco, elevation: 2 },
-  mapa: { width: '100%', height: '100%' },
-  loadingMap: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: G_COLORS.branco, padding: 20 },
-
   formCard: { backgroundColor: G_COLORS.branco, padding: 18, borderRadius: 12, borderWidth: 1, borderColor: G_COLORS.cinzaBorda, marginBottom: 30, elevation: 2 },
   inputGroup: { marginBottom: 16 },
   label: { fontSize: 13, fontWeight: '700', color: G_COLORS.textoPreto, marginBottom: 8 },

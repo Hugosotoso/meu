@@ -42,18 +42,7 @@ export default function LoginGovReal() {
         setStatusConsulta('autorizado');
 
         setTimeout(() => {
-          router.replace({ 
-            pathname: '/', 
-            params: { 
-              logado: 'sim',
-              cpf: sessao.cpf || cpfLimpo,
-              nome: sessao.nome || 'Servidor(a)',
-              cargo: sessao.cargo || 'Cargo não informado',
-              uorg: sessao.uorg_id || 'Gabinete',
-              matricula: sessao.matricula || '000000',
-              nivel_acesso: sessao.nivel_acesso || 'OURO'
-            }
-          });
+         router.replace
         }, 2500);
       } else {
         setStatusConsulta('negado');
