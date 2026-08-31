@@ -87,21 +87,101 @@ const STATUS_POR_TABELA: Record<string, Array<{ valor: string; label: string }>>
 };
 
 function texto(valor: unknown, fallback = 'Não informado') {
+  if (typeof valor === 'object' || typeof valor === 'function') return fallback;
   const resultado = String(valor ?? '').trim();
   return resultado || fallback;
+}
+
+function solicitanteSeguro(valor: unknown, fallback = 'Gabinete') {
+  const resultado = texto(valor, fallback);
+  const contemMetadadosInternos =
+    /\[?\s*assinado\s*\]?/i.test(resultado) ||
+    /(?:^|\s)(?:CPF|IP|Sess(?:ã|a)o|UID|Autor|Data)\s*:/i.test(resultado);
+
+  return contemMetadadosInternos
+    ? 'Documento assinado digitalmente'
+    : resultado;
+}
+
+function nomeMaterial(item: Record<string, unknown>) {
+  const candidato =
+    item.nome ??
+    item.descricao ??
+    item.material ??
+    item.produto ??
+    item.titulo ??
+    item.item;
+
+  if (candidato && typeof candidato === 'object' && !Array.isArray(candidato)) {
+    const interno = candidato as Record<string, unknown>;
+    return texto(
+      interno.nome ?? interno.descricao ?? interno.titulo,
+      'Material',
+    );
+  }
+
+  return texto(candidato, 'Material');
+}
+
+function formatarItemAlmoxarifado(valor: unknown) {
+  if (typeof valor === 'string') return texto(valor, 'Material');
+
+  if (!valor || typeof valor !== 'object' || Array.isArray(valor)) {
+    return texto(valor, 'Material');
+  }
+
+  const item = valor as Record<string, unknown>;
+  const quantidadeBruta = item.quantidade ?? item.qtd ?? item.qtde;
+  const quantidade = Number(quantidadeBruta);
+  const possuiQuantidade =
+    quantidadeBruta !== undefined &&
+    quantidadeBruta !== null &&
+    String(quantidadeBruta).trim() !== '' &&
+    Number.isFinite(quantidade);
+
+  if (possuiQuantidade && quantidade <= 0) return '';
+
+  const nome = nomeMaterial(item);
+  return possuiQuantidade ? `${quantidade}x ${nome}` : nome;
+}
+
+function formatarItensAlmoxarifado(valor: unknown) {
+  let itens = valor;
+
+  if (typeof itens === 'string') {
+    const bruto = itens.trim();
+    if (!bruto) return 'materiais';
+
+    try {
+      itens = JSON.parse(bruto);
+    } catch {
+      return bruto.includes('[object Object]') ? 'materiais diversos' : bruto;
+    }
+  }
+
+  const lista = Array.isArray(itens) ? itens : [itens];
+  const formatados = lista
+    .map(formatarItemAlmoxarifado)
+    .filter((item): item is string => Boolean(item));
+
+  if (formatados.length === 0) return 'materiais';
+  if (formatados.length <= 3) return formatados.join(', ');
+
+  const restantes = formatados.length - 3;
+  return `${formatados.slice(0, 3).join(', ')} e mais ${restantes} ${restantes === 1 ? 'item' : 'itens'}`;
 }
 
 function mapearDados(tabela: string, modulo: Modulo, dados: any[] | null): Pendencia[] {
   return (dados || []).map((item) => {
     let titulo = '';
     let subtitulo = '';
-    let solicitante = texto(item.nome_servidor || item.responsavel, 'Gabinete');
+    let solicitante = solicitanteSeguro(item.nome_servidor || item.responsavel, 'Gabinete');
 
     if (tabela === 'oficios') {
       titulo = texto(item.assunto, 'Ofício sem assunto');
       subtitulo = `${texto(item.numero, 'Sem número')} • ${texto(item.orgao, 'Órgão não informado')}`;
     } else if (tabela === 'solicitacoes_almoxarifado') {
-      titulo = `Requisição de ${texto(item.itens, 'materiais')}`;
+      titulo = `Requisição de ${formatarItensAlmoxarifado(item.itens)}`;
       subtitulo = texto(item.uorg, 'Unidade não informada');
     } else if (tabela === 'solicitacoes_frota') {
       titulo = `Viagem para ${texto(item.destino)}`;
