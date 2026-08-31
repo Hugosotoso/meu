@@ -42,8 +42,8 @@ export default function LoginGovReal() {
         setStatusConsulta('autorizado');
 
         setTimeout(() => {
-         router.replace
-        }, 2500);
+  router.replace('/');
+}, 2500);
       } else {
         setStatusConsulta('negado');
       }
