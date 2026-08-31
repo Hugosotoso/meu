@@ -8,6 +8,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Tex
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import PrioritySelector from '../../components/PrioritySelector';
+import { CORES_PRIORIDADE, prioridadeSegura, Prioridade } from '../../lib/workflow';
 
 const C = { 
   azulGov: '#1351B4', azulEscuro: '#0B2D66', fundo: '#F4F6F9', branco: '#FFFFFF',
@@ -32,6 +34,7 @@ export default function PatrimonioScreen() {
   const [tipoChamado, setTipoChamado] = useState('Defeito/Manutenção');
   const [descricao, setDescricao] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [prioridade, setPrioridade] = useState<Prioridade>('NORMAL');
 
   // Histórico
   const [historico, setHistorico] = useState<any[]>([]);
@@ -68,7 +71,7 @@ export default function PatrimonioScreen() {
     setCarregando(true);
 
     try {
-      const { error } = await supabase.from('chamados_patrimonio').insert([
+      const { data, error } = await supabase.from('chamados_patrimonio').insert([
         {
           matricula: matricula || 'N/D',
           nome_servidor: nome || 'Servidor',
@@ -76,14 +79,18 @@ export default function PatrimonioScreen() {
           tombamento: tombamento,
           tipo_chamado: tipoChamado,
           descricao: descricao,
-          status: 'Aguardando Análise'
+          status: 'Aguardando Análise',
+          prioridade,
+          atualizado_por_matricula: matricula || 'N/D',
+          atualizado_por_nome: nome || 'Servidor'
         }
-      ]);
+      ]).select('protocolo').single();
 
       if (error) throw error;
 
-      Alert.alert('Sucesso!', 'O teu chamado foi registado no setor de Patrimônio.');
+      Alert.alert('Chamado protocolado', `Protocolo ${data.protocolo}. O setor de Patrimônio já pode acompanhar a demanda.`);
       setTombamento(''); setDescricao('');
+      setPrioridade('NORMAL');
       buscarHistorico();
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível gravar o chamado.');
@@ -178,6 +185,11 @@ export default function PatrimonioScreen() {
             </View>
           </View>
 
+          <View style={styles.inputGroup}>
+            <Text style={styles.label}>Prioridade administrativa</Text>
+            <PrioritySelector value={prioridade} onChange={setPrioridade} compact />
+          </View>
+
           <TouchableOpacity style={styles.btnPrincipal} onPress={handleAbrirChamado} disabled={carregando}>
             {carregando ? (
               <ActivityIndicator size="small" color={C.branco} />
@@ -203,7 +215,10 @@ export default function PatrimonioScreen() {
           historico.map((chamado) => (
             <View key={chamado.id} style={styles.historicoCard}>
               <View style={styles.historicoCabecalho}>
-                <Text style={styles.historicoId}>{chamado.tombamento}</Text>
+                <View style={{ flex: 1 }}>
+                  <Text style={styles.historicoProtocolo}>{chamado.protocolo || `PAT-${chamado.id}`}</Text>
+                  <Text style={styles.historicoId}>{chamado.tombamento}</Text>
+                </View>
                 <View style={[styles.statusTag, { backgroundColor: C.ouro + '15' }]}>
                   <Text style={[styles.statusTexto, { color: C.ouro }]}>{chamado.status}</Text>
                 </View>
@@ -213,6 +228,11 @@ export default function PatrimonioScreen() {
                 <Text style={styles.historicoItemTxt}>{chamado.tipo_chamado}</Text>
               </View>
               <Text style={styles.historicoDesc} numberOfLines={2}>"{chamado.descricao}"</Text>
+              <View style={[styles.priorityBadge, { backgroundColor: CORES_PRIORIDADE[prioridadeSegura(chamado.prioridade)].fundo }]}>
+                <Text style={[styles.priorityBadgeText, { color: CORES_PRIORIDADE[prioridadeSegura(chamado.prioridade)].texto }]}>
+                  Prioridade {CORES_PRIORIDADE[prioridadeSegura(chamado.prioridade)].label}
+                </Text>
+              </View>
             </View>
           ))
         )}
@@ -272,12 +292,15 @@ const styles = StyleSheet.create({
 
   historicoCard: { backgroundColor: C.branco, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.borda },
   historicoCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 },
+  historicoProtocolo: { fontSize: 10, fontWeight: '900', color: C.azulGov, letterSpacing: 0.5, marginBottom: 3 },
   historicoId: { fontSize: 15, fontWeight: '800', color: C.textoDestaque },
   statusTag: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   statusTexto: { fontSize: 11, fontWeight: 'bold' },
   historicoRow: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 8 },
   historicoItemTxt: { fontSize: 13, color: C.textoSecundario, fontWeight: '600' },
   historicoDesc: { fontSize: 13, color: C.textoSecundario, fontStyle: 'italic', backgroundColor: C.fundo, padding: 8, borderRadius: 8 },
+  priorityBadge: { alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, marginTop: 10 },
+  priorityBadgeText: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   
   vazioState: { alignItems: 'center', padding: 30, backgroundColor: C.branco, borderRadius: 16, borderWidth: 1, borderColor: C.borda, borderStyle: 'dashed' },
   vazioTexto: { marginTop: 10, color: C.textoSecundario, fontSize: 14, fontWeight: '500' },

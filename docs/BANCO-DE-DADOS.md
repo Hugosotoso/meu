@@ -2,6 +2,16 @@
 
 O projeto utiliza Supabase/PostgreSQL. A aplicação web acessa a Data API com a chave pública configurada na Vercel.
 
+## Sessão e RLS
+
+- `portal_iniciar_sessao(cpf)` localiza exatamente um servidor e emite um token aleatório válido por 8 horas.
+- `portal_sessoes` guarda apenas o SHA-256 do token e não possui acesso direto pela Data API.
+- O cliente envia o token no cabeçalho `x-portal-session`.
+- Servidores comuns consultam somente os registros da própria matrícula.
+- O perfil `DIAMANTE` consulta e movimenta os fluxos administrativos globais.
+- Matrícula, nome e autoria são regravados no banco por gatilho; parâmetros de rota não concedem permissão.
+- Nenhuma política permite `delete`, e `servidores` não pode ser consultada diretamente pelo papel `anon`.
+
 ## Relacionamentos
 
 - `servidores.matricula` identifica o usuário nas telas funcionais.
@@ -38,6 +48,12 @@ Os campos `rendimentos` e `lista_descontos` são listas JSON.
 ### `oficios`
 
 `id`, `created_at`, `numero`, `orgao`, `orgaoNome`, `assunto`, `vencimento`, `responsavel`, `tipo`, `status`
+
+### `portal_sessoes`
+
+`id`, `token_hash`, `matricula`, `cpf`, `nome`, `cargo`, `uorg_id`, `nivel_acesso`, `criado_em`, `expira_em`, `ultimo_uso_em`
+
+O valor aberto do token nunca é gravado nessa tabela.
 
 ## Níveis de acesso
 

@@ -8,6 +8,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, SafeAreaView, Ale
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import { supabase } from '../../lib/supabase';
+import PrioritySelector from '../../components/PrioritySelector';
+import { CORES_PRIORIDADE, prioridadeSegura, Prioridade } from '../../lib/workflow';
 
 const C = { 
   azulGov: '#1351B4', azulEscuro: '#0B2D66', fundo: '#F4F6F9', branco: '#FFFFFF',
@@ -40,6 +42,7 @@ export default function AlmoxarifadoScreen() {
   const [carregando, setCarregando] = useState(false);
   const [historico, setHistorico] = useState<any[]>([]);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
+  const [prioridade, setPrioridade] = useState<Prioridade>('NORMAL');
 
   useEffect(() => {
     buscarHistorico();
@@ -84,20 +87,24 @@ export default function AlmoxarifadoScreen() {
         return { id, nome: produto?.nome, qtd };
       });
 
-      const { error } = await supabase.from('solicitacoes_almoxarifado').insert([
+      const { data, error } = await supabase.from('solicitacoes_almoxarifado').insert([
         {
           matricula: matricula || 'N/D',
           nome_servidor: nome || 'Servidor',
           uorg: uorg || 'Unidade Central',
           itens: itensFormatados,
-          status: 'A Separar'
+          status: 'A Separar',
+          prioridade,
+          atualizado_por_matricula: matricula || 'N/D',
+          atualizado_por_nome: nome || 'Servidor'
         }
-      ]);
+      ]).select('protocolo').single();
 
       if (error) throw error;
 
-      Alert.alert('Sucesso!', 'A tua requisição foi enviada para o Almoxarifado Central.');
+      Alert.alert('Requisição protocolada', `Protocolo ${data.protocolo}. O pedido foi enviado ao Almoxarifado Central.`);
       setCarrinho({});
+      setPrioridade('NORMAL');
       buscarHistorico();
     } catch (error) {
       Alert.alert('Erro', 'Não foi possível gravar o pedido.');
@@ -174,6 +181,12 @@ export default function AlmoxarifadoScreen() {
           })}
         </View>
 
+        <View style={styles.prioridadeCard}>
+          <Text style={styles.prioridadeTitulo}>Prioridade da requisição</Text>
+          <Text style={styles.prioridadeSub}>Urgências ficam destacadas na Central de Gestão.</Text>
+          <PrioritySelector value={prioridade} onChange={setPrioridade} compact />
+        </View>
+
         {/* HISTÓRICO DE PEDIDOS */}
         <Text style={styles.secaoTitulo}>Os Meus Pedidos</Text>
         {carregandoHistorico ? (
@@ -187,7 +200,10 @@ export default function AlmoxarifadoScreen() {
           historico.map((pedido) => (
             <View key={pedido.id} style={styles.historicoCard}>
               <View style={styles.historicoCabecalho}>
-                <Text style={styles.historicoId}>Pedido #{pedido.id}</Text>
+                <View>
+                  <Text style={styles.historicoProtocolo}>{pedido.protocolo || `ALM-${pedido.id}`}</Text>
+                  <Text style={styles.historicoId}>Pedido #{pedido.id}</Text>
+                </View>
                 <View style={[styles.statusTag, { backgroundColor: getStatusCor(pedido.status) + '15' }]}>
                   <View style={[styles.statusBolinha, { backgroundColor: getStatusCor(pedido.status) }]} />
                   <Text style={[styles.statusTexto, { color: getStatusCor(pedido.status) }]}>{pedido.status}</Text>
@@ -197,6 +213,11 @@ export default function AlmoxarifadoScreen() {
                 {pedido.itens && pedido.itens.map((i: any, idx: number) => (
                   <Text key={idx} style={styles.historicoItemTxt}>{i.qtd}x {i.nome}</Text>
                 ))}
+              </View>
+              <View style={[styles.prioridadeTag, { backgroundColor: CORES_PRIORIDADE[prioridadeSegura(pedido.prioridade)].fundo }]}>
+                <Text style={[styles.prioridadeTagTexto, { color: CORES_PRIORIDADE[prioridadeSegura(pedido.prioridade)].texto }]}>
+                  Prioridade {CORES_PRIORIDADE[prioridadeSegura(pedido.prioridade)].label}
+                </Text>
               </View>
             </View>
           ))
@@ -257,15 +278,21 @@ const styles = StyleSheet.create({
   stepperPill: { flexDirection: 'row', alignItems: 'center', backgroundColor: C.bgPill, borderRadius: 20, paddingHorizontal: 4, paddingVertical: 4 },
   stepperBtn: { width: 28, height: 28, borderRadius: 14, backgroundColor: C.branco, justifyContent: 'center', alignItems: 'center', elevation: 1, shadowColor: '#000', shadowOpacity: 0.05, shadowRadius: 2 },
   stepperValor: { width: 24, textAlign: 'center', fontSize: 14, fontWeight: '800', color: C.textoDestaque },
+  prioridadeCard: { backgroundColor: C.branco, borderWidth: 1, borderColor: C.borda, borderRadius: 16, padding: 16, marginBottom: 26 },
+  prioridadeTitulo: { color: C.textoDestaque, fontSize: 14, fontWeight: '800' },
+  prioridadeSub: { color: C.textoSecundario, fontSize: 11, marginTop: 3, marginBottom: 12 },
   
   historicoCard: { backgroundColor: C.branco, borderRadius: 16, padding: 16, marginBottom: 12, borderWidth: 1, borderColor: C.borda },
   historicoCabecalho: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12, paddingBottom: 12, borderBottomWidth: 1, borderBottomColor: C.fundo },
   historicoId: { fontSize: 15, fontWeight: '800', color: C.textoDestaque },
+  historicoProtocolo: { fontSize: 10, fontWeight: '900', color: C.azulGov, marginBottom: 3 },
   statusTag: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 20 },
   statusBolinha: { width: 6, height: 6, borderRadius: 3, marginRight: 6 },
   statusTexto: { fontSize: 11, fontWeight: 'bold' },
   historicoItens: { paddingLeft: 4 },
   historicoItemTxt: { fontSize: 13, color: C.textoSecundario, marginBottom: 4, fontWeight: '500' },
+  prioridadeTag: { alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10, marginTop: 9 },
+  prioridadeTagTexto: { fontSize: 9, fontWeight: '900' },
   
   vazioState: { alignItems: 'center', padding: 40, backgroundColor: C.branco, borderRadius: 16, borderWidth: 1, borderColor: C.borda, borderStyle: 'dashed' },
   vazioTexto: { marginTop: 12, color: C.textoSecundario, fontSize: 14, fontWeight: '600' },

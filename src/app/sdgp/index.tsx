@@ -137,7 +137,7 @@ export default function SdgpHome() {
         <Text style={styles.sectionTitle}>Gestão e Vida Funcional</Text>
         <View style={styles.serviceGroup}>
           <ServiceCard icon="folder-account" title="Assentamento Funcional Digital" subtitle="Dossiê, portarias e documentos" color="#FF9800" onPress={() => router.push('/sdgp/afd')} />
-          <ServiceCard icon="palm-tree" title="Férias e Recessos" subtitle="Programar, alterar ou consultar" color="#00BCD4" onPress={() => router.push({ pathname: '/sdgp/ferias', params: { nome, matricula } })} />
+          <ServiceCard icon="palm-tree" title="Férias e Recessos" subtitle="Programar, protocolar e acompanhar" color="#00BCD4" onPress={() => router.push({ pathname: '/sdgp/ferias', params: { nome, matricula, uorg, cpf } })} />
           <ServiceCard icon="calculator-variant" title="Simular Aposentadoria" subtitle="Tempo de contribuição e regras" color="#9C27B0" onPress={() => router.push({ pathname: '/sdgp/aposentadoria', params: { nome, matricula } })} />
         </View>
 

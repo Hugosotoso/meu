@@ -6,7 +6,7 @@ import React, { useState } from 'react';
 import { View, Text, TextInput, TouchableOpacity, StyleSheet, StatusBar, SafeAreaView, ActivityIndicator, KeyboardAvoidingView, Platform, ScrollView } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { supabase, supabaseConfigurado } from '../../lib/supabase';
+import { setPortalSession, supabase, supabaseConfigurado } from '../../lib/supabase';
 
 const GOV_COLORS = { azulPrincipal: '#1351B4', azulEscuro: '#0C3789', branco: '#FFFFFF', cinzaFundo: '#F8F9FA', textoPreto: '#1A1A1A', cinzaTexto: '#555A60', ouro: '#FFCD00', cinzaBorda: '#D9DDE8', azulClaro: '#E8EEFA', verde: '#10b981', vermelho: '#ef4444' };
 
@@ -30,29 +30,29 @@ export default function LoginGovReal() {
 
   const consultarSupabase = async (cpfLimpo: string) => {
     try {
-      const { data, error } = await supabase
-        .from('servidores')
-        .select('cpf, nome, cargo, uorg_id, matricula, nivel_acesso')
-        .eq('cpf', cpfLimpo)
-        .maybeSingle();
+      setPortalSession(null);
+      const { data, error } = await supabase.rpc('portal_iniciar_sessao', { p_cpf: cpfLimpo });
 
       if (error) throw error;
 
-      if (data) {
+      const sessao = Array.isArray(data) ? data[0] : data;
+
+      if (sessao?.session_token) {
+        setPortalSession(sessao.session_token);
         setStatusConsulta('autorizado');
-        
+
         setTimeout(() => {
           router.replace({ 
             pathname: '/', 
             params: { 
-              logado: 'sim', 
-              cpf: data.cpf || cpfLimpo, 
-              nome: data.nome || 'Servidor(a)',
-              cargo: data.cargo || 'Cargo não informado',
-              uorg: data.uorg_id || 'Gabinete',
-              matricula: data.matricula || '000000',
-              nivel_acesso: data.nivel_acesso || 'OURO'
-            } 
+              logado: 'sim',
+              cpf: sessao.cpf || cpfLimpo,
+              nome: sessao.nome || 'Servidor(a)',
+              cargo: sessao.cargo || 'Cargo não informado',
+              uorg: sessao.uorg_id || 'Gabinete',
+              matricula: sessao.matricula || '000000',
+              nivel_acesso: sessao.nivel_acesso || 'OURO'
+            }
           });
         }, 2500);
       } else {
@@ -68,18 +68,6 @@ export default function LoginGovReal() {
     const cpfLimpo = cpf.replace(/\D/g, '');
     if (cpfLimpo.length !== 11) {
       setErroCpf('Digite um CPF válido com 11 números.');
-      return;
-    }
-
-    if (cpfLimpo === '12345678910') {
-      setTelaAtual('terminal');
-      setStatusConsulta('autorizado');
-      setTimeout(() => {
-        router.replace({ 
-          pathname: '/', 
-          params: { logado: 'sim', nome: 'SERVIDOR TESTE', cargo: 'AUDITOR FEDERAL', uorg: 'AGÊNCIA INSS RIO BRANCO', matricula: '1234567', cpf: '123.456.789-10', nivel_acesso: 'DIAMANTE' } 
-        });
-      }, 1500);
       return;
     }
 
@@ -115,7 +103,7 @@ export default function LoginGovReal() {
         <View style={styles.terminalContainer}>
           {statusConsulta === 'buscando' && (
             <Text style={[styles.terminalText, { color: '#cbd5e1' }]}>
-              {'>'} Consultando base de dados governamental...
+              {'>'} Validando vínculo funcional e emitindo sessão temporária...
             </Text>
           )}
           

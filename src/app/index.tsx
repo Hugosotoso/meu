@@ -17,11 +17,21 @@ const NOTICIAS_API = [
 
 // Cores individuais inseridas direto no badgeCor
 const MODULOS_ATIVOS = [
-  { id: 'gabinete', titulo: 'Módulo Gabinete', subtitulo: 'Gestão de Prazos, Ofícios e Scanner IA', icone: 'gavel', rota: '/gabinete', badge: 'Urgente', badgeCor: '#D32F2F' },
+  { id: 'gabinete', titulo: 'Módulo Gabinete', subtitulo: 'Processos, ofícios, prazos e assinatura', icone: 'gavel', rota: '/gabinete', badge: 'Prioritário', badgeCor: '#7E22CE' },
   { id: 'sdgp', titulo: 'Módulo SDGP', subtitulo: 'Gestão de Pessoal e RH', icone: 'people', rota: '/sdgp', badge: 'Ativo', badgeCor: '#118643' },
   { id: 'logistica', titulo: 'Logística e Frota', subtitulo: 'Controle de Patrimônio', icone: 'local-shipping', rota: '/logistica', badge: 'Ativo', badgeCor: '#118643' },
   { id: 'ia-copilot', titulo: 'Assistente Gov.ia', subtitulo: 'Inteligência e Suporte INSS', icone: 'auto-awesome', rota: '/ia-copilot', badge: 'Cloud API', badgeCor: '#FFCD00' }
 ];
+
+const MODULO_GESTAO = {
+  id: 'central',
+  titulo: 'Central de Gestão',
+  subtitulo: 'Pendências, decisões, auditoria e indicadores',
+  icone: 'dashboard',
+  rota: '/central',
+  badge: 'Gestor',
+  badgeCor: '#0C3789',
+};
 
 export default function Dashboard() {
   const router = useRouter();
@@ -47,6 +57,10 @@ export default function Dashboard() {
   const [mesSalario, setMesSalario] = useState<string>('');
   const [carregandoSalario, setCarregandoSalario] = useState(true);
   const [salarioVisivel, setSalarioVisivel] = useState(false);
+  const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
+  const modulosVisiveis = nivelAcesso.toUpperCase() === 'DIAMANTE'
+    ? [MODULO_GESTAO, ...MODULOS_ATIVOS]
+    : MODULOS_ATIVOS;
 
   // Gira o carrossel de notícias
   useEffect(() => {
@@ -88,6 +102,19 @@ export default function Dashboard() {
     buscarSalario();
   }, [isLogado, params.matricula]);
 
+  useEffect(() => {
+    const buscarNotificacoes = async () => {
+      if (!params.matricula) return;
+      const { count } = await supabase
+        .from('notificacoes')
+        .select('id', { count: 'exact', head: true })
+        .eq('matricula', String(params.matricula))
+        .eq('lida', false);
+      setNotificacoesNaoLidas(count || 0);
+    };
+    buscarNotificacoes();
+  }, [params.matricula]);
+
   if (!isLogado) {
     return <Redirect href="/login" />;
   }
@@ -96,18 +123,25 @@ export default function Dashboard() {
 
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar barStyle="light-content" backgroundColor="#1351B" />
+      <StatusBar barStyle="light-content" backgroundColor="#1351B4" />
       
       {/* HEADER GOV.BR */}
       <View style={styles.govBar}>
         <View style={styles.logoContainer}>
           <Text style={styles.govText}>gov<Text style={{ color: '#FFCD00' }}>.</Text>br</Text>
           <View style={styles.separadorVertical} />
-          <Text style={styles.subTituloGov}>Serviços Digitais</Text>
+          <Text style={styles.subTituloGov}>Portal Integrado de Gestão Pública</Text>
         </View>
-        <TouchableOpacity style={styles.acessibilidadeContainer}>
+        <TouchableOpacity
+          style={styles.acessibilidadeContainer}
+          onPress={() => nivelAcesso.toUpperCase() === 'DIAMANTE' && router.push({ pathname: '/central', params: { ...params } })}
+        >
           <MaterialIcons name="notifications" size={18} color="#FFCD00" />
-          <View style={styles.bolinhaNotificacao} />
+          {notificacoesNaoLidas > 0 ? (
+            <View style={styles.contadorNotificacao}>
+              <Text style={styles.contadorNotificacaoTexto}>{Math.min(notificacoesNaoLidas, 9)}</Text>
+            </View>
+          ) : null}
         </TouchableOpacity>
       </View>
 
@@ -141,7 +175,7 @@ export default function Dashboard() {
           </View>
           <View style={styles.seloVerificacao}>
             <MaterialIcons name="verified" size={14} color="#FFCD00" />
-            <Text style={styles.seloTexto}>Sessão Segura PostgreSQL</Text>
+            <Text style={styles.seloTexto}>Perfil {nivelAcesso.toUpperCase()} • Sessão registrada</Text>
           </View>
         </View>
 
@@ -184,7 +218,7 @@ export default function Dashboard() {
           <Text style={styles.tituloSessao}>Módulos Integrados</Text>
           <Text style={styles.subtitSessao}>Acesse os sistemas administrativos abaixo:</Text>
           
-          {MODULOS_ATIVOS.map((mod) => (
+          {modulosVisiveis.map((mod) => (
             <TouchableOpacity 
               key={mod.id} 
               style={styles.cardGov} 
@@ -220,8 +254,8 @@ export default function Dashboard() {
         </View>
 
         <View style={styles.rodapeGov}>
-          <Text style={styles.rodapeTexto}>© 2026 Ministério da Gestão e da Inovação</Text>
-          <Text style={styles.rodapeSub}>Conectado ao Cluster Supabase</Text>
+          <Text style={styles.rodapeTexto}>© 2026 Secretaria de Administração e Gestão Digital</Text>
+          <Text style={styles.rodapeSub}>Portal N2 • Dados rastreáveis e serviços integrados</Text>
         </View>
       </ScrollView>
     </SafeAreaView>
@@ -240,7 +274,8 @@ const styles = StyleSheet.create({
   separadorVertical: { width: 1, height: 20, backgroundColor: 'rgba(255,255,255,0.3)', marginHorizontal: 12 }, 
   subTituloGov: { fontSize: 13, color: 'rgba(255,255,255,0.85)', fontWeight: '500' }, 
   acessibilidadeContainer: { width: 34, height: 34, borderRadius: 17, backgroundColor: 'rgba(255,255,255,0.12)', alignItems: 'center', justifyContent: 'center' }, 
-  bolinhaNotificacao: { position: 'absolute', top: 8, right: 8, width: 8, height: 8, borderRadius: 4, backgroundColor: '#D32F2F' }, 
+  contadorNotificacao: { position: 'absolute', top: 2, right: 1, minWidth: 16, height: 16, borderRadius: 8, paddingHorizontal: 3, backgroundColor: '#D32F2F', alignItems: 'center', justifyContent: 'center' },
+  contadorNotificacaoTexto: { color: '#FFFFFF', fontSize: 9, fontWeight: '900' },
   //PAINEL INFORMAÇÔIES DO SERVIDOR
   painelUsuario: { backgroundColor: '#0C3789', padding: 20, borderBottomLeftRadius: 20, borderBottomRightRadius: 20 }, 
   //

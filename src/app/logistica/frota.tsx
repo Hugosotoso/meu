@@ -9,6 +9,8 @@ import { useLocalSearchParams, useRouter } from 'expo-router';
 import { MaterialIcons, MaterialCommunityIcons } from '@expo/vector-icons';
 import * as Location from 'expo-location';
 import { supabase } from '../../lib/supabase';
+import PrioritySelector from '../../components/PrioritySelector';
+import { CORES_PRIORIDADE, prioridadeSegura, Prioridade } from '../../lib/workflow';
 
 // 🛡️ IMPORTAÇÃO DINÂMICA DO MAPA
 let MapView: any = null;
@@ -35,6 +37,7 @@ export default function FrotaScreen() {
   const [dataIda, setDataIda] = useState('');
   const [motivo, setMotivo] = useState('');
   const [carregando, setCarregando] = useState(false);
+  const [prioridade, setPrioridade] = useState<Prioridade>('NORMAL');
 
   // Estados do Mapa e Histórico
   const [localizacao, setLocalizacao] = useState<any>(null);
@@ -92,7 +95,7 @@ export default function FrotaScreen() {
     setCarregando(true);
 
     try {
-      const { error } = await supabase.from('solicitacoes_frota').insert([
+      const { data, error } = await supabase.from('solicitacoes_frota').insert([
         {
           matricula: matricula || 'N/D',
           nome_servidor: nome || 'Servidor',
@@ -101,14 +104,18 @@ export default function FrotaScreen() {
           motivo: motivo,
           status: 'Em Análise',
           lat_partida: localizacao?.latitude || null,
-          lng_partida: localizacao?.longitude || null
+          lng_partida: localizacao?.longitude || null,
+          prioridade,
+          atualizado_por_matricula: matricula || 'N/D',
+          atualizado_por_nome: nome || 'Servidor'
         }
-      ]);
+      ]).select('protocolo').single();
 
       if (error) throw error;
 
-      Alert.alert('Sucesso!', 'Veículo solicitado com sucesso.');
+      Alert.alert('Solicitação protocolada', `Protocolo ${data.protocolo}. A Central de Gestão já pode analisar a viagem.`);
       setDestino(''); setDataIda(''); setMotivo('');
+      setPrioridade('NORMAL');
       
       // Atualiza a lista de pendências na hora!
       buscarHistorico(); 
@@ -197,6 +204,11 @@ export default function FrotaScreen() {
             </View>
 
             <View style={styles.inputGroup}>
+              <Text style={styles.label}>Prioridade administrativa</Text>
+              <PrioritySelector value={prioridade} onChange={setPrioridade} compact />
+            </View>
+
+            <View style={styles.inputGroup}>
               <Text style={styles.label}>Data da Ida</Text>
               <View style={styles.inputContainer}>
                 <MaterialIcons name="event" size={20} color={G_COLORS.azulPrincipal} style={styles.inputIcon} />
@@ -238,7 +250,10 @@ export default function FrotaScreen() {
               historico.map((item, index) => (
                 <View key={index} style={styles.historyCard}>
                   <View style={styles.historyHeader}>
-                    <Text style={styles.historyDestino} numberOfLines={1}>{item.destino}</Text>
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.historyProtocolo}>{item.protocolo || `FRO-${item.id}`}</Text>
+                      <Text style={styles.historyDestino} numberOfLines={1}>{item.destino}</Text>
+                    </View>
                     <View style={[styles.badge, { backgroundColor: getCorStatus(item.status) + '15' }]}>
                       <Text style={[styles.badgeText, { color: getCorStatus(item.status) }]}>{item.status}</Text>
                     </View>
@@ -250,6 +265,11 @@ export default function FrotaScreen() {
                   <View style={styles.historyRow}>
                     <MaterialIcons name="info-outline" size={14} color={G_COLORS.cinzaTexto} />
                     <Text style={styles.historyData} numberOfLines={1}>Motivo: {item.motivo}</Text>
+                  </View>
+                  <View style={[styles.priorityBadge, { backgroundColor: CORES_PRIORIDADE[prioridadeSegura(item.prioridade)].fundo }]}>
+                    <Text style={[styles.priorityBadgeText, { color: CORES_PRIORIDADE[prioridadeSegura(item.prioridade)].texto }]}>
+                      Prioridade {CORES_PRIORIDADE[prioridadeSegura(item.prioridade)].label}
+                    </Text>
                   </View>
                 </View>
               ))
@@ -289,11 +309,14 @@ const styles = StyleSheet.create({
 
   historyCard: { backgroundColor: G_COLORS.branco, padding: 16, borderRadius: 12, borderWidth: 1, borderColor: G_COLORS.cinzaBorda, marginBottom: 12, elevation: 1 },
   historyHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 },
+  historyProtocolo: { fontSize: 10, fontWeight: '900', color: G_COLORS.azulPrincipal, letterSpacing: 0.5, marginBottom: 3 },
   historyDestino: { fontSize: 15, fontWeight: 'bold', color: G_COLORS.textoPreto, flex: 1, marginRight: 10 },
   badge: { paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12 },
   badgeText: { fontSize: 11, fontWeight: 'bold' },
   historyRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 6 },
   historyData: { fontSize: 13, color: G_COLORS.cinzaTexto, fontWeight: '500' },
+  priorityBadge: { alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 4, borderRadius: 999, marginTop: 10 },
+  priorityBadgeText: { fontSize: 10, fontWeight: '900', textTransform: 'uppercase' },
   
   emptyState: { alignItems: 'center', padding: 30, backgroundColor: G_COLORS.branco, borderRadius: 12, borderWidth: 1, borderColor: G_COLORS.cinzaBorda, borderStyle: 'dashed' },
   emptyText: { marginTop: 10, color: G_COLORS.cinzaTexto, fontSize: 14, fontWeight: '500' }

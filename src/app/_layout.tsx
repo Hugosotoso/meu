@@ -21,6 +21,7 @@ export default function LayoutRaiz() {
       <Stack.Screen name="index" />
       
       {/* Mapeamento dos outros módulos ativos */}
+      <Stack.Screen name="central/index" />
       <Stack.Screen name="gabinete/index" />
       <Stack.Screen name="ia-copilot/index" />
     </Stack>

@@ -1,10 +1,8 @@
 # Portal N2 — Android WebView
 
-1. Publique primeiro a pasta principal na Vercel.
-2. Abra `app/src/main/res/values/strings.xml`.
-3. Substitua `https://seu-projeto.vercel.app` pela URL HTTPS recebida da Vercel.
-4. Abra esta pasta (`android-webview`) no Android Studio.
-5. Aguarde o Gradle Sync e execute em um emulador ou aparelho.
+1. A aplicação web de produção está configurada em `https://meu-teal.vercel.app`.
+2. Abra esta pasta (`android-webview`) no Android Studio.
+3. Aguarde o Gradle Sync e execute em um emulador ou aparelho.
 
 O wrapper aceita somente a origem HTTPS configurada dentro da WebView. Links de
 outros domínios são enviados ao navegador do aparelho. O acesso a arquivos locais
