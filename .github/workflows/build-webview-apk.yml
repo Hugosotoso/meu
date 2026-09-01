@@ -1,0 +1,50 @@
+name: Build Portal N2 Android APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - "android-webview/**"
+      - ".github/workflows/build-webview-apk.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  build-apk:
+    name: Gerar APK instalável
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    steps:
+      - name: Baixar o repositório
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Configurar Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Instalar Android 36
+        run: sdkmanager "platforms;android-36" "build-tools;36.0.0"
+
+      - name: Compilar APK de apresentação
+        working-directory: android-webview
+        run: bash ./gradlew --no-daemon assembleDebug
+
+      - name: Preparar arquivo final
+        run: cp android-webview/app/build/outputs/apk/debug/app-debug.apk Portal-N2.apk
+
+      - name: Publicar APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: Portal-N2-Android
+          path: Portal-N2.apk
+          if-no-files-found: error
+          retention-days: 30
