@@ -903,11 +903,10 @@ const styles = StyleSheet.create({
   },
 
   serviceTitle: {
-    color: G_COLORS.texto,
-    fontSize: 14,
-    fontWeight: '750',
-  },
-
+  color: G_COLORS.texto,
+  fontSize: 14,
+  fontWeight: '700',
+},
   serviceSubtitle: {
     color: G_COLORS.cinzaTexto,
     fontSize: 11,
