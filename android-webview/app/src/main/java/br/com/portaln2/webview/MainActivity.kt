@@ -7,6 +7,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
+import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
@@ -14,6 +15,7 @@ import android.content.pm.PackageManager
 import android.print.PrintAttributes
 import android.print.PrintManager
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.GeolocationPermissions
 import android.webkit.JavascriptInterface
@@ -25,12 +27,14 @@ import android.webkit.WebSettings
 import android.webkit.WebView
 import android.webkit.WebViewClient
 import android.widget.Button
+import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
 import java.util.Locale
 
 class MainActivity : Activity() {
+    private lateinit var root: FrameLayout
     private lateinit var webView: WebView
     private lateinit var progress: ProgressBar
     private lateinit var errorPanel: View
@@ -48,6 +52,7 @@ class MainActivity : Activity() {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        root = findViewById(R.id.root)
         webView = findViewById(R.id.web_view)
         progress = findViewById(R.id.progress)
         errorPanel = findViewById(R.id.error_panel)
@@ -207,6 +212,9 @@ class MainActivity : Activity() {
 
     private inner class PrintBridge {
         @JavascriptInterface
+        fun getVersion(): Int = 2
+
+        @JavascriptInterface
         fun printHtml(html: String) {
             runOnUiThread {
                 val printWebView = WebView(this@MainActivity)
@@ -216,26 +224,55 @@ class MainActivity : Activity() {
                     javaScriptEnabled = false
                     allowFileAccess = false
                     allowContentAccess = false
+                    defaultTextEncodingName = "UTF-8"
                 }
+                printWebView.setBackgroundColor(Color.WHITE)
+                printWebView.visibility = View.INVISIBLE
 
                 printWebView.webViewClient = object : WebViewClient() {
                     override fun onPageFinished(view: WebView, url: String?) {
                         if (enviadoParaImpressao) return
                         enviadoParaImpressao = true
 
-                        val printManager = getSystemService(Context.PRINT_SERVICE) as PrintManager
-                        val adapter = view.createPrintDocumentAdapter(getString(R.string.app_name))
-                        printManager.print(
-                            getString(R.string.print_job_name),
-                            adapter,
-                            PrintAttributes.Builder().build(),
-                        )
+                        // Aguarda o documento invisível concluir o layout antes de
+                        // entregar seu adaptador ao serviço de impressão do Android.
+                        view.postDelayed({
+                            if (isFinishing || isDestroyed) return@postDelayed
+
+                            val printManager =
+                                getSystemService(Context.PRINT_SERVICE) as PrintManager
+                            val nomeDocumento =
+                                "${getString(R.string.app_name)}-${System.currentTimeMillis()}"
+                            val adapter = view.createPrintDocumentAdapter(nomeDocumento)
+                            val atributos = PrintAttributes.Builder()
+                                .setMediaSize(PrintAttributes.MediaSize.ISO_A4)
+                                .setColorMode(PrintAttributes.COLOR_MODE_COLOR)
+                                .build()
+
+                            printManager.print(
+                                getString(R.string.print_job_name),
+                                adapter,
+                                atributos,
+                            )
+                            Toast.makeText(
+                                this@MainActivity,
+                                "Documento pronto. Selecione Salvar como PDF.",
+                                Toast.LENGTH_LONG,
+                            ).show()
+                        }, 250)
                     }
                 }
 
                 printWebViews.add(printWebView)
+                root.addView(
+                    printWebView,
+                    FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                        ViewGroup.LayoutParams.MATCH_PARENT,
+                    ),
+                )
                 printWebView.loadDataWithBaseURL(
-                    null,
+                    getString(R.string.web_app_url),
                     html,
                     "text/html",
                     "UTF-8",
@@ -333,7 +370,10 @@ class MainActivity : Activity() {
         webView.webChromeClient = null
         webView.webViewClient = WebViewClient()
         webView.destroy()
-        printWebViews.forEach { it.destroy() }
+        printWebViews.forEach {
+            root.removeView(it)
+            it.destroy()
+        }
         printWebViews.clear()
         super.onDestroy()
     }
