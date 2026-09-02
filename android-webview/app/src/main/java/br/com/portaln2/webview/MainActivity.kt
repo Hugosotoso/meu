@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.Manifest
 import android.app.Activity
 import android.content.ActivityNotFoundException
+import android.content.ContentValues
 import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
@@ -11,9 +12,12 @@ import android.graphics.Color
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Environment
 import android.content.pm.PackageManager
 import android.print.PrintAttributes
 import android.print.PrintManager
+import android.provider.MediaStore
+import android.util.Base64
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.CookieManager
@@ -31,6 +35,7 @@ import android.widget.FrameLayout
 import android.widget.ProgressBar
 import android.widget.TextView
 import android.widget.Toast
+import java.io.File
 import java.util.Locale
 
 class MainActivity : Activity() {
@@ -212,7 +217,93 @@ class MainActivity : Activity() {
 
     private inner class PrintBridge {
         @JavascriptInterface
-        fun getVersion(): Int = 2
+        fun getVersion(): Int = 3
+
+        @JavascriptInterface
+        fun saveBase64Pdf(base64Pdf: String, requestedFileName: String) {
+            Thread {
+                try {
+                    require(base64Pdf.length <= 25_000_000) {
+                        "O documento excede o limite permitido."
+                    }
+
+                    val bytes = Base64.decode(base64Pdf, Base64.DEFAULT)
+                    require(bytes.size >= 5 && bytes.copyOfRange(0, 5)
+                        .toString(Charsets.US_ASCII) == "%PDF-") {
+                        "O arquivo recebido não é um PDF válido."
+                    }
+
+                    val nomeSeguro = requestedFileName
+                        .replace(Regex("[^A-Za-z0-9._-]"), "_")
+                        .take(100)
+                        .ifBlank { "Portal-N2.pdf" }
+                        .let { if (it.endsWith(".pdf", ignoreCase = true)) it else "$it.pdf" }
+
+                    val destino = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                        salvarPdfEmDownloads(bytes, nomeSeguro)
+                    } else {
+                        salvarPdfNaPastaDoApp(bytes, nomeSeguro)
+                    }
+
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            "PDF salvo em $destino",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                } catch (error: Exception) {
+                    runOnUiThread {
+                        Toast.makeText(
+                            this@MainActivity,
+                            error.message ?: "Não foi possível salvar o PDF.",
+                            Toast.LENGTH_LONG,
+                        ).show()
+                    }
+                }
+            }.start()
+        }
+
+        private fun salvarPdfEmDownloads(bytes: ByteArray, nomeArquivo: String): String {
+            val resolver = contentResolver
+            val valores = ContentValues().apply {
+                put(MediaStore.MediaColumns.DISPLAY_NAME, nomeArquivo)
+                put(MediaStore.MediaColumns.MIME_TYPE, "application/pdf")
+                put(
+                    MediaStore.MediaColumns.RELATIVE_PATH,
+                    "${Environment.DIRECTORY_DOWNLOADS}/Portal N2",
+                )
+                put(MediaStore.MediaColumns.IS_PENDING, 1)
+            }
+            val uri = resolver.insert(
+                MediaStore.Downloads.EXTERNAL_CONTENT_URI,
+                valores,
+            ) ?: throw IllegalStateException("O Android não liberou a pasta Downloads.")
+
+            try {
+                resolver.openOutputStream(uri)?.use { saida ->
+                    saida.write(bytes)
+                    saida.flush()
+                } ?: throw IllegalStateException("Não foi possível criar o arquivo.")
+
+                valores.clear()
+                valores.put(MediaStore.MediaColumns.IS_PENDING, 0)
+                resolver.update(uri, valores, null, null)
+            } catch (error: Exception) {
+                resolver.delete(uri, null, null)
+                throw error
+            }
+
+            return "Downloads/Portal N2/$nomeArquivo"
+        }
+
+        private fun salvarPdfNaPastaDoApp(bytes: ByteArray, nomeArquivo: String): String {
+            val raiz = getExternalFilesDir(Environment.DIRECTORY_DOWNLOADS) ?: filesDir
+            val pasta = File(raiz, "Portal N2").apply { mkdirs() }
+            val arquivo = File(pasta, nomeArquivo)
+            arquivo.writeBytes(bytes)
+            return arquivo.absolutePath
+        }
 
         @JavascriptInterface
         fun printHtml(html: String) {
