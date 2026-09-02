@@ -13,6 +13,7 @@ import {
 import { MaterialCommunityIcons, MaterialIcons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
 import { supabase } from '../../lib/supabase';
+import { statusFinalizado } from '../../lib/workflow';
 
 const C = {
   roxo: '#7E22CE',
@@ -94,6 +95,9 @@ type AnaliseIA = {
   limitacoes: string[];
   aviso: string;
 };
+
+const CAMPOS_PROCESSO =
+  'id,created_at,updated_at,numero,protocolo,orgao,orgaoNome,assunto,descricao,interessado,vencimento,responsavel,tipo,status,prioridade,etapa,sigilo,justificativa_gestor';
 
 function texto(valor: unknown, fallback = 'Não informado') {
   const resultado = String(valor ?? '').trim();
@@ -181,17 +185,28 @@ export default function GabineteIAScreen() {
 
     const { data, error } = await supabase
       .from('oficios')
-      .select(
-        'id,created_at,updated_at,numero,protocolo,orgao,orgaoNome,assunto,descricao,interessado,vencimento,responsavel,tipo,status,prioridade,etapa,sigilo,justificativa_gestor',
-      )
-      .order('id', { ascending: false })
-      .limit(40);
+      .select(CAMPOS_PROCESSO)
+      .order('id', { ascending: false });
 
     if (error) {
       setProcessos([]);
+      setProcessoSelecionado(null);
       setErro(error.message);
     } else {
-      setProcessos((data || []) as Processo[]);
+      const processosAtivos = ((data || []) as Processo[]).filter(
+        (processo) => !statusFinalizado(processo.status),
+      );
+
+      setProcessos(processosAtivos);
+      setProcessoSelecionado((selecionado) => {
+        if (!selecionado) return null;
+
+        return processosAtivos.some(
+          (processo) => String(processo.id) === String(selecionado.id),
+        )
+          ? selecionado
+          : null;
+      });
     }
 
     setCarregando(false);
@@ -203,9 +218,13 @@ export default function GabineteIAScreen() {
 
   const processosFiltrados = useMemo(() => {
     const termo = busca.trim().toLowerCase();
-    if (!termo) return processos;
+    const processosAtivos = processos.filter(
+      (processo) => !statusFinalizado(processo.status),
+    );
 
-    return processos.filter((processo) =>
+    if (!termo) return processosAtivos;
+
+    return processosAtivos.filter((processo) =>
       [
         processo.protocolo,
         processo.numero,
@@ -226,8 +245,38 @@ export default function GabineteIAScreen() {
     setAnalisando(true);
     setErro('');
 
+    const { data: processoAtual, error: erroProcesso } = await supabase
+      .from('oficios')
+      .select(CAMPOS_PROCESSO)
+      .eq('id', processoSelecionado.id)
+      .maybeSingle();
+
+    if (erroProcesso) {
+      setErro(erroProcesso.message);
+      setAnalisando(false);
+      Alert.alert(
+        'Processo não verificado',
+        'Não foi possível confirmar o estado atual do processo.',
+      );
+      return;
+    }
+
+    if (!processoAtual || statusFinalizado(processoAtual.status)) {
+      setProcessoSelecionado(null);
+      setAnalisando(false);
+      Alert.alert(
+        'Processo já concluído',
+        'Este processo foi finalizado e saiu da fila de análise da IA.',
+      );
+      await carregarProcessos();
+      return;
+    }
+
+    const processoParaAnalise = processoAtual as Processo;
+    setProcessoSelecionado(processoParaAnalise);
+
     const { data, error } = await supabase.functions.invoke('analisar-processo', {
-      body: { processo: processoSelecionado },
+      body: { processo: processoParaAnalise },
     });
 
     if (error || !data?.analise) {
@@ -241,7 +290,7 @@ export default function GabineteIAScreen() {
     }
 
     setAnalise(data.analise as AnaliseIA);
-    setModelo(texto(data.modelo, 'OpenAI'));
+    setModelo(texto(data.modelo, 'Gemini'));
     setAnalisando(false);
   };
 
@@ -266,7 +315,7 @@ export default function GabineteIAScreen() {
         </View>
         <View style={styles.realBadge}>
           <View style={styles.realPonto} />
-          <Text style={styles.realTexto}>OPENAI</Text>
+          <Text style={styles.realTexto}>IA ATIVA</Text>
         </View>
       </View>
 
@@ -282,10 +331,10 @@ export default function GabineteIAScreen() {
                 <MaterialCommunityIcons name="file-search-outline" size={32} color={C.roxo} />
               </View>
               <View style={{ flex: 1 }}>
-                <Text style={styles.heroTitulo}>Análise real dos processos cadastrados</Text>
+                <Text style={styles.heroTitulo}>Análise dos processos em tramitação</Text>
                 <Text style={styles.heroTexto}>
-                  Selecione um processo. A IA analisará resumo, riscos, pendências,
-                  prazos, próximas ações e produzirá uma minuta de despacho.
+                  Selecione um processo ativo. A IA analisará resumo, riscos,
+                  pendências, prazos, próximas ações e produzirá uma minuta de despacho.
                 </Text>
               </View>
             </View>
@@ -333,7 +382,9 @@ export default function GabineteIAScreen() {
                 <View style={styles.listaCabecalho}>
                   <View>
                     <Text style={styles.listaTitulo}>Escolha o processo</Text>
-                    <Text style={styles.listaSub}>{processosFiltrados.length} encontrados</Text>
+                    <Text style={styles.listaSub}>
+                      {processosFiltrados.length} em tramitação
+                    </Text>
                   </View>
                   <TouchableOpacity onPress={carregarProcessos} style={styles.atualizarBtn}>
                     <MaterialIcons name="refresh" size={19} color={C.azul} />
@@ -355,7 +406,11 @@ export default function GabineteIAScreen() {
                   <View style={styles.estadoVazio}>
                     <MaterialCommunityIcons name="file-search-outline" size={40} color={C.borda} />
                     <Text style={styles.estadoTitulo}>Nenhum processo encontrado</Text>
-                    <Text style={styles.estadoTexto}>Altere o texto da busca.</Text>
+                    <Text style={styles.estadoTexto}>
+                      {busca.trim()
+                        ? 'Altere os termos da busca.'
+                        : 'Não há processos em tramitação disponíveis para análise.'}
+                    </Text>
                   </View>
                 ) : (
                   processosFiltrados.map((processo) => {
