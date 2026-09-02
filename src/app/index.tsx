@@ -1,18 +1,21 @@
 /**
- * Super App Gov — Dashboard Central
+ * Super App Gov — Portal Integrado N2
  * Ficheiro: src/app/index.tsx
  */
 
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import {
-  View,
-  Text,
-  ScrollView,
-  TouchableOpacity,
-  StyleSheet,
-  StatusBar,
-  SafeAreaView,
   ActivityIndicator,
+  Alert,
+  RefreshControl,
+  SafeAreaView,
+  ScrollView,
+  StatusBar,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  useWindowDimensions,
+  View,
 } from 'react-native';
 import { MaterialIcons } from '@expo/vector-icons';
 import { Redirect, useRouter } from 'expo-router';
@@ -22,95 +25,343 @@ import {
   type PortalProfile,
 } from '../lib/supabase';
 
-const NOTICIAS_API = [
-  'INSS: Nova portaria acelera concessão via Atestmed em todo o país.',
-  'SEAD-AC: Recadastramento funcional obrigatório encerra nesta sexta-feira.',
-  'Dataprev: Manutenção programada do sistema SIBE ocorrerá na madrugada de domingo.',
+const C = {
+  azul: '#1351B4',
+  azulEscuro: '#071D41',
+  azulMedio: '#0C3789',
+  azulClaro: '#EAF2FF',
+  branco: '#FFFFFF',
+  fundo: '#F4F6F8',
+  superficie: '#F8FAFC',
+  texto: '#1F2937',
+  secundario: '#64748B',
+  borda: '#E2E8F0',
+  amarelo: '#FFCD00',
+  verde: '#168821',
+  laranja: '#B45309',
+  vermelho: '#DC2626',
+  roxo: '#7C3AED',
+  ciano: '#0369A1',
+};
+
+type Icone = React.ComponentProps<typeof MaterialIcons>['name'];
+
+type Modulo = {
+  id: string;
+  titulo: string;
+  subtitulo: string;
+  descricao: string;
+  icone: Icone;
+  rota: string;
+  badge: string;
+  cor: string;
+};
+
+const COMUNICADOS = [
+  {
+    titulo: 'Serviços integrados',
+    texto:
+      'Solicitações de pessoal, frota, materiais e patrimônio podem ser acompanhadas em um único ambiente.',
+    icone: 'hub' as Icone,
+  },
+  {
+    titulo: 'Gestão com rastreabilidade',
+    texto:
+      'Protocolos, prioridades e decisões administrativas permanecem registrados durante todo o fluxo.',
+    icone: 'fact-check' as Icone,
+  },
+  {
+    titulo: 'Inteligência aplicada',
+    texto:
+      'O Gabinete utiliza análise assistida por IA para apoiar a triagem e a organização dos processos.',
+    icone: 'auto-awesome' as Icone,
+  },
 ];
 
-const MODULOS_ATIVOS = [
+const MODULOS_BASE: Modulo[] = [
   {
     id: 'gabinete',
-    titulo: 'Módulo Gabinete',
-    subtitulo: 'Processos, ofícios, prazos e assinatura',
+    titulo: 'Gabinete Digital',
+    subtitulo: 'Processos e decisões',
+    descricao:
+      'Ofícios, prazos, assinaturas e análise inteligente em um fluxo administrativo rastreável.',
     icone: 'gavel',
     rota: '/gabinete',
     badge: 'Prioritário',
-    badgeCor: '#7E22CE',
+    cor: C.roxo,
   },
   {
     id: 'sdgp',
-    titulo: 'Módulo SDGP',
-    subtitulo: 'Gestão de Pessoal e RH',
-    icone: 'people',
+    titulo: 'Gestão de Pessoas',
+    subtitulo: 'SDGP Digital',
+    descricao:
+      'Contracheques, vida funcional, férias, assentamento digital e simulação previdenciária.',
+    icone: 'groups',
     rota: '/sdgp',
-    badge: 'Ativo',
-    badgeCor: '#118643',
+    badge: 'Serviços ativos',
+    cor: C.verde,
   },
   {
     id: 'logistica',
-    titulo: 'Logística e Frota',
-    subtitulo: 'Controle de Patrimônio',
+    titulo: 'Logística Integrada',
+    subtitulo: 'Frota, materiais e bens',
+    descricao:
+      'Solicitação de veículos, estoque real do almoxarifado e gestão da carga patrimonial.',
     icone: 'local-shipping',
     rota: '/logistica',
-    badge: 'Ativo',
-    badgeCor: '#118643',
+    badge: 'Operacional',
+    cor: C.ciano,
   },
   {
     id: 'ia-copilot',
     titulo: 'Assistente Gov.ia',
-    subtitulo: 'Inteligência e Suporte INSS',
+    subtitulo: 'Apoio inteligente',
+    descricao:
+      'Orientação contextual para serviços, processos e rotinas administrativas do portal.',
     icone: 'auto-awesome',
     rota: '/ia-copilot',
-    badge: 'Cloud API',
-    badgeCor: '#FFCD00',
+    badge: 'IA integrada',
+    cor: C.laranja,
   },
 ];
 
-const MODULO_GESTAO = {
+const MODULO_GESTAO: Modulo = {
   id: 'central',
   titulo: 'Central de Gestão',
-  subtitulo: 'Pendências, decisões, auditoria e indicadores',
-  icone: 'dashboard',
+  subtitulo: 'Visão executiva',
+  descricao:
+    'Pendências, decisões, indicadores, prioridades e trilha de auditoria para o perfil gestor.',
+  icone: 'space-dashboard',
   rota: '/central',
-  badge: 'Gestor',
-  badgeCor: '#0C3789',
+  badge: 'Acesso gestor',
+  cor: C.azul,
 };
+
+function normalizarStatus(valor?: string | null): string {
+  return String(valor || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[\s-]+/g, '_')
+    .toUpperCase();
+}
+
+function estaEmAndamento(status?: string | null): boolean {
+  const valor = normalizarStatus(status);
+
+  if (!valor) {
+    return true;
+  }
+
+  return !(
+    valor.includes('CONCLUID') ||
+    valor.includes('FINALIZ') ||
+    valor.includes('ENTREGUE') ||
+    valor.includes('REJEIT') ||
+    valor.includes('CANCELAD') ||
+    valor.includes('ARQUIVAD') ||
+    valor.includes('INDEFERID')
+  );
+}
+
+function mascararCpf(cpf?: string | null): string {
+  const digitos = String(cpf || '').replace(/\D/g, '');
+
+  if (digitos.length !== 11) {
+    return '***.***.***-**';
+  }
+
+  return (
+    digitos.slice(0, 3) +
+    '.***.***-' +
+    digitos.slice(-2)
+  );
+}
+
+function formatarMoeda(valor: number): string {
+  return valor.toLocaleString('pt-BR', {
+    style: 'currency',
+    currency: 'BRL',
+  });
+}
+
+function obterSaudacao(): string {
+  const hora = new Date().getHours();
+
+  if (hora < 12) {
+    return 'Bom dia';
+  }
+
+  if (hora < 18) {
+    return 'Boa tarde';
+  }
+
+  return 'Boa noite';
+}
+
+function primeiroNome(nome: string): string {
+  return nome.trim().split(/\s+/)[0] || 'Servidor';
+}
+
+function KpiCard({
+  titulo,
+  valor,
+  detalhe,
+  icone,
+  cor,
+  desktop,
+}: {
+  titulo: string;
+  valor: string | number;
+  detalhe: string;
+  icone: Icone;
+  cor: string;
+  desktop: boolean;
+}) {
+  return (
+    <View
+      style={[
+        styles.kpiCard,
+        desktop ? styles.kpiDesktop : styles.kpiMobile,
+      ]}
+    >
+      <View style={styles.kpiTopo}>
+        <View style={[styles.kpiIcone, { backgroundColor: cor + '12' }]}>
+          <MaterialIcons name={icone} size={20} color={cor} />
+        </View>
+        <View style={[styles.kpiPonto, { backgroundColor: cor }]} />
+      </View>
+      <Text style={styles.kpiValor}>{valor}</Text>
+      <Text style={styles.kpiTitulo}>{titulo}</Text>
+      <Text style={styles.kpiDetalhe}>{detalhe}</Text>
+    </View>
+  );
+}
+
+function ModuloCard({
+  modulo,
+  desktop,
+  onPress,
+}: {
+  modulo: Modulo;
+  desktop: boolean;
+  onPress: () => void;
+}) {
+  return (
+    <TouchableOpacity
+      style={[
+        styles.moduloCard,
+        desktop && styles.moduloCardDesktop,
+      ]}
+      onPress={onPress}
+      activeOpacity={0.82}
+    >
+      <View
+        style={[
+          styles.moduloFaixa,
+          { backgroundColor: modulo.cor },
+        ]}
+      />
+
+      <View style={styles.moduloTopo}>
+        <View
+          style={[
+            styles.moduloIcone,
+            { backgroundColor: modulo.cor + '12' },
+          ]}
+        >
+          <MaterialIcons
+            name={modulo.icone}
+            size={27}
+            color={modulo.cor}
+          />
+        </View>
+
+        <View
+          style={[
+            styles.moduloBadge,
+            { backgroundColor: modulo.cor + '12' },
+          ]}
+        >
+          <View
+            style={[
+              styles.moduloBadgePonto,
+              { backgroundColor: modulo.cor },
+            ]}
+          />
+          <Text
+            style={[
+              styles.moduloBadgeTexto,
+              { color: modulo.cor },
+            ]}
+          >
+            {modulo.badge}
+          </Text>
+        </View>
+      </View>
+
+      <Text style={styles.moduloSubtitulo}>
+        {modulo.subtitulo.toUpperCase()}
+      </Text>
+      <Text style={styles.moduloTitulo}>{modulo.titulo}</Text>
+      <Text style={styles.moduloDescricao}>{modulo.descricao}</Text>
+
+      <View style={styles.moduloRodape}>
+        <Text style={[styles.moduloAcessar, { color: modulo.cor }]}>
+          Acessar módulo
+        </Text>
+        <View
+          style={[
+            styles.moduloSeta,
+            { backgroundColor: modulo.cor + '12' },
+          ]}
+        >
+          <MaterialIcons
+            name="arrow-forward"
+            size={17}
+            color={modulo.cor}
+          />
+        </View>
+      </View>
+    </TouchableOpacity>
+  );
+}
 
 export default function Dashboard() {
   const router = useRouter();
+  const { width } = useWindowDimensions();
+  const desktop = width >= 920;
+  const gridDesktop = width >= 720;
+  const compacto = width < 430;
 
   const [perfil, setPerfil] = useState<PortalProfile | null>(null);
   const [verificandoSessao, setVerificandoSessao] = useState(true);
-
-  const [indiceNoticia, setIndiceNoticia] = useState(0);
+  const [indiceComunicado, setIndiceComunicado] = useState(0);
   const [ultimoSalario, setUltimoSalario] = useState<number | null>(null);
   const [mesSalario, setMesSalario] = useState('');
-  const [carregandoSalario, setCarregandoSalario] = useState(true);
+  const [carregandoResumo, setCarregandoResumo] = useState(true);
   const [salarioVisivel, setSalarioVisivel] = useState(false);
   const [notificacoesNaoLidas, setNotificacoesNaoLidas] = useState(0);
+  const [servicosEmAndamento, setServicosEmAndamento] = useState(0);
+  const [atualizando, setAtualizando] = useState(false);
+  const [ultimaAtualizacao, setUltimaAtualizacao] = useState<Date | null>(null);
 
-  const nomeServidor = perfil?.nome || 'SERVIDOR AUTENTICADO';
+  const nomeServidor = perfil?.nome || 'Servidor autenticado';
   const cargoServidor = perfil?.cargo || 'Cargo não informado';
   const uorgServidor = perfil?.uorg_id || 'Lotação não informada';
   const nivelAcesso = perfil?.nivel_acesso || 'OURO';
   const matriculaServidor = perfil?.matricula || '';
   const cpfServidor = perfil?.cpf || '';
+  const gestor = nivelAcesso.toUpperCase() === 'DIAMANTE';
 
-  const cpfMascarado = cpfServidor
-    ? `${cpfServidor.slice(0, 3)}.***.***-${cpfServidor.slice(-2)}`
-    : '***.***.***-**';
+  const modulosVisiveis = useMemo(
+    () => (gestor ? [MODULO_GESTAO, ...MODULOS_BASE] : MODULOS_BASE),
+    [gestor],
+  );
 
-  const modulosVisiveis =
-    nivelAcesso.toUpperCase() === 'DIAMANTE'
-      ? [MODULO_GESTAO, ...MODULOS_ATIVOS]
-      : MODULOS_ATIVOS;
-
-  // Valida a sessão usando o token armazenado no sessionStorage.
   useEffect(() => {
     let telaAtiva = true;
 
-    const carregarPerfil = async () => {
+    const validarSessao = async () => {
       try {
         const perfilAtual = await getPortalProfile();
 
@@ -130,144 +381,137 @@ export default function Dashboard() {
       }
     };
 
-    carregarPerfil();
+    validarSessao();
 
     return () => {
       telaAtiva = false;
     };
   }, []);
 
-  // Gira o carrossel de notícias.
   useEffect(() => {
     const intervalo = setInterval(() => {
-      setIndiceNoticia(
-        (indiceAtual) => (indiceAtual + 1) % NOTICIAS_API.length,
+      setIndiceComunicado(
+        (atual) => (atual + 1) % COMUNICADOS.length,
       );
-    }, 4000);
+    }, 5500);
 
     return () => clearInterval(intervalo);
   }, []);
 
-  // Busca o último salário da matrícula autenticada.
-  useEffect(() => {
-    const buscarSalario = async () => {
+  const carregarResumo = useCallback(
+    async (refresh = false) => {
       if (!matriculaServidor) {
-        setCarregandoSalario(false);
+        setCarregandoResumo(false);
+        setAtualizando(false);
         return;
       }
 
-      setCarregandoSalario(true);
+      if (refresh) {
+        setAtualizando(true);
+      } else {
+        setCarregandoResumo(true);
+      }
 
       try {
-        const { data, error } = await supabase
-          .from('contracheques')
-          .select('liquido, mes_referencia')
-          .eq('matricula', matriculaServidor)
-          .order('id', { ascending: false })
-          .limit(1)
-          .maybeSingle();
+        const [
+          salario,
+          notificacoes,
+          frota,
+          almoxarifado,
+          patrimonio,
+          ferias,
+        ] = await Promise.all([
+          supabase
+            .from('contracheques')
+            .select('liquido, mes_referencia')
+            .eq('matricula', matriculaServidor)
+            .order('id', { ascending: false })
+            .limit(1)
+            .maybeSingle(),
+          supabase
+            .from('notificacoes')
+            .select('id', { count: 'exact', head: true })
+            .eq('matricula', matriculaServidor)
+            .eq('lida', false),
+          supabase
+            .from('solicitacoes_frota')
+            .select('status')
+            .eq('matricula', matriculaServidor),
+          supabase
+            .from('solicitacoes_almoxarifado')
+            .select('status')
+            .eq('matricula', matriculaServidor),
+          supabase
+            .from('chamados_patrimonio')
+            .select('status')
+            .eq('matricula', matriculaServidor),
+          supabase
+            .from('solicitacoes_ferias')
+            .select('status')
+            .eq('matricula', matriculaServidor),
+        ]);
 
-        if (error) {
-          throw error;
-        }
-
-        if (data) {
-          setUltimoSalario(Number(data.liquido));
-          setMesSalario(data.mes_referencia);
+        if (!salario.error && salario.data) {
+          setUltimoSalario(Number(salario.data.liquido));
+          setMesSalario(String(salario.data.mes_referencia || ''));
         } else {
           setUltimoSalario(null);
           setMesSalario('');
         }
-      } catch (error) {
-        console.error('Erro ao buscar salário na Home:', error);
-        setUltimoSalario(null);
-        setMesSalario('');
-      } finally {
-        setCarregandoSalario(false);
-      }
-    };
 
-    buscarSalario();
-  }, [matriculaServidor]);
+        setNotificacoesNaoLidas(
+          notificacoes.error ? 0 : notificacoes.count || 0,
+        );
 
-  // Busca as notificações da matrícula autenticada.
-  useEffect(() => {
-    const buscarNotificacoes = async () => {
-      if (!matriculaServidor) {
-        setNotificacoesNaoLidas(0);
-        return;
-      }
+        const consultasOperacionais = [
+          frota,
+          almoxarifado,
+          patrimonio,
+          ferias,
+        ];
 
-      try {
-        const { count, error } = await supabase
-          .from('notificacoes')
-          .select('id', { count: 'exact', head: true })
-          .eq('matricula', matriculaServidor)
-          .eq('lida', false);
+        const totalEmAndamento = consultasOperacionais.reduce(
+          (total, consulta) => {
+            if (consulta.error || !Array.isArray(consulta.data)) {
+              return total;
+            }
 
-        if (error) {
-          throw error;
-        }
-
-        setNotificacoesNaoLidas(count || 0);
-      } catch (error) {
-        console.error('Erro ao buscar notificações:', error);
-        setNotificacoesNaoLidas(0);
-      }
-    };
-
-    buscarNotificacoes();
-  }, [matriculaServidor]);
-
-  if (verificandoSessao) {
-    return (
-      <SafeAreaView
-        style={[
-          styles.safe,
-          {
-            alignItems: 'center',
-            justifyContent: 'center',
+            return (
+              total +
+              consulta.data.filter((item) =>
+                estaEmAndamento(item.status),
+              ).length
+            );
           },
-        ]}
-      >
-        <StatusBar
-          barStyle="light-content"
-          backgroundColor="#1351B4"
-        />
+          0,
+        );
 
-        <ActivityIndicator size="large" color="#FFFFFF" />
+        setServicosEmAndamento(totalEmAndamento);
+        setUltimaAtualizacao(new Date());
+      } catch (error) {
+        console.error('Erro ao carregar o resumo da Home:', error);
+      } finally {
+        setCarregandoResumo(false);
+        setAtualizando(false);
+      }
+    },
+    [matriculaServidor],
+  );
 
-        <Text
-          style={{
-            color: '#FFFFFF',
-            marginTop: 12,
-            fontWeight: '600',
-          }}
-        >
-          Validando sessão...
-        </Text>
-      </SafeAreaView>
-    );
-  }
+  useEffect(() => {
+    carregarResumo();
+  }, [carregarResumo]);
 
-  if (!perfil) {
-    return <Redirect href="/login" />;
-  }
+  const abrirModulo = (modulo: Modulo) => {
+    if (!perfil) {
+      return;
+    }
 
-  const formatarMoeda = (valor: number) =>
-    `R$ ${valor.toFixed(2).replace('.', ',')}`;
-
-  const abrirModulo = (modulo: (typeof modulosVisiveis)[number]) => {
-    // Gabinete e Central já consultam o perfil pela sessão segura.
     if (modulo.id === 'gabinete' || modulo.id === 'central') {
       router.push(modulo.rota as any);
       return;
     }
 
-    /*
-     * Compatibilidade temporária com os módulos antigos.
-     * Depois eles também serão alterados para consultar getPortalProfile().
-     */
     router.push({
       pathname: modulo.rota as any,
       params: {
@@ -281,585 +525,1353 @@ export default function Dashboard() {
     });
   };
 
+  const abrirFinanceiro = () => {
+    const moduloSdgp = MODULOS_BASE.find((modulo) => modulo.id === 'sdgp');
+
+    if (moduloSdgp) {
+      abrirModulo(moduloSdgp);
+    }
+  };
+
+  const abrirNotificacoes = () => {
+    if (gestor) {
+      router.push('/central');
+      return;
+    }
+
+    Alert.alert(
+      'Notificações administrativas',
+      notificacoesNaoLidas > 0
+        ? 'Você possui ' +
+            notificacoesNaoLidas +
+            ' atualização(ões) não lida(s) nos seus serviços.'
+        : 'Não existem novas atualizações para a sua matrícula.',
+    );
+  };
+
+  if (verificandoSessao) {
+    return (
+      <SafeAreaView style={styles.loadingPagina}>
+        <StatusBar
+          barStyle="light-content"
+          backgroundColor={C.azulEscuro}
+        />
+        <View style={styles.loadingMarca}>
+          <Text style={styles.loadingGov}>
+            gov<Text style={styles.pontoAmarelo}>.</Text>br
+          </Text>
+          <View style={styles.loadingDivisor} />
+          <Text style={styles.loadingPortal}>Portal N2</Text>
+        </View>
+        <ActivityIndicator size="large" color={C.amarelo} />
+        <Text style={styles.loadingTexto}>Validando sessão segura...</Text>
+      </SafeAreaView>
+    );
+  }
+
+  if (!perfil) {
+    return <Redirect href="/login" />;
+  }
+
+  const comunicado = COMUNICADOS[indiceComunicado];
+
   return (
     <SafeAreaView style={styles.safe}>
-      <StatusBar
-        barStyle="light-content"
-        backgroundColor="#1351B4"
-      />
+      <StatusBar barStyle="light-content" backgroundColor={C.azul} />
 
-      {/* HEADER GOV.BR */}
       <View style={styles.govBar}>
-        <View style={styles.logoContainer}>
+        <View style={styles.marca}>
           <Text style={styles.govText}>
-            gov<Text style={{ color: '#FFCD00' }}>.</Text>br
+            gov<Text style={styles.pontoAmarelo}>.</Text>br
           </Text>
-
-          <View style={styles.separadorVertical} />
-
-          <Text style={styles.subTituloGov}>
-            Portal Integrado de Gestão Pública
-          </Text>
-        </View>
-
-        <TouchableOpacity
-          style={styles.acessibilidadeContainer}
-          onPress={() => {
-            if (nivelAcesso.toUpperCase() === 'DIAMANTE') {
-              router.push('/central');
-            }
-          }}
-        >
-          <MaterialIcons
-            name="notifications"
-            size={18}
-            color="#FFCD00"
-          />
-
-          {notificacoesNaoLidas > 0 ? (
-            <View style={styles.contadorNotificacao}>
-              <Text style={styles.contadorNotificacaoTexto}>
-                {Math.min(notificacoesNaoLidas, 9)}
+          {!compacto && <View style={styles.marcaDivisor} />}
+          {!compacto && (
+            <View>
+              <Text style={styles.marcaPortal}>Portal Integrado N2</Text>
+              <Text style={styles.marcaOrgao}>
+                Gestão pública digital
               </Text>
             </View>
-          ) : null}
-        </TouchableOpacity>
+          )}
+        </View>
+
+        <View style={styles.govAcoes}>
+          <View style={styles.demoBadge}>
+            <View style={styles.demoPonto} />
+            <Text style={styles.demoTexto}>
+              {compacto ? 'DEMO' : 'AMBIENTE DEMONSTRATIVO'}
+            </Text>
+          </View>
+
+          <TouchableOpacity
+            style={styles.notificacaoBotao}
+            onPress={abrirNotificacoes}
+            accessibilityLabel="Ver notificações"
+          >
+            <MaterialIcons
+              name="notifications-none"
+              size={22}
+              color={C.branco}
+            />
+            {notificacoesNaoLidas > 0 && (
+              <View style={styles.notificacaoContador}>
+                <Text style={styles.notificacaoContadorTexto}>
+                  {Math.min(notificacoesNaoLidas, 9)}
+                </Text>
+              </View>
+            )}
+          </TouchableOpacity>
+        </View>
       </View>
 
       <ScrollView
         style={styles.scroll}
         contentContainerStyle={styles.scrollContent}
         showsVerticalScrollIndicator={false}
+        refreshControl={
+          <RefreshControl
+            refreshing={atualizando}
+            onRefresh={() => carregarResumo(true)}
+            colors={[C.azul]}
+            tintColor={C.azul}
+          />
+        }
       >
-        {/* PAINEL DO SERVIDOR */}
-        <View style={styles.painelUsuario}>
-          <View style={styles.usuarioHeader}>
-            <View style={styles.avatarCirculo}>
-              <MaterialIcons
-                name="person"
-                size={28}
-                color="#FFCD00"
-              />
-            </View>
+        <View style={styles.heroFundo}>
+          <View style={styles.heroCirculoUm} />
+          <View style={styles.heroCirculoDois} />
 
-            <View style={styles.usuarioInfo}>
-              <Text style={styles.nomeServidor}>
-                {nomeServidor.toUpperCase()}
+          <View
+            style={[
+              styles.limite,
+              styles.hero,
+              desktop && styles.heroDesktop,
+            ]}
+          >
+            <View style={styles.heroPrincipal}>
+              <View style={styles.heroEyebrow}>
+                <MaterialIcons
+                  name="waving-hand"
+                  size={15}
+                  color={C.amarelo}
+                />
+                <Text style={styles.heroEyebrowTexto}>
+                  {obterSaudacao()}, {primeiroNome(nomeServidor)}
+                </Text>
+              </View>
+
+              <Text style={styles.heroTitulo}>
+                Administração pública{'\n'}
+                <Text style={styles.heroTituloDestaque}>
+                  simples, integrada e inteligente.
+                </Text>
               </Text>
 
-              <View style={styles.infoRow}>
-                <MaterialIcons
-                  name="badge"
-                  size={12}
-                  color="#FFCD00"
-                />
+              <Text style={styles.heroDescricao}>
+                Um único ambiente para serviços internos, decisões,
+                acompanhamento e gestão digital.
+              </Text>
 
-                <Text style={styles.dadosServidor}>
-                  CPF:{' '}
-                  <Text style={{ fontWeight: 'bold' }}>
-                    {cpfMascarado}
+              <View style={styles.heroSelos}>
+                <View style={styles.heroSelo}>
+                  <MaterialIcons
+                    name="verified-user"
+                    size={15}
+                    color={C.amarelo}
+                  />
+                  <Text style={styles.heroSeloTexto}>
+                    Sessão verificada
                   </Text>
-                </Text>
+                </View>
+                <View style={styles.heroSelo}>
+                  <MaterialIcons
+                    name="workspace-premium"
+                    size={15}
+                    color={C.amarelo}
+                  />
+                  <Text style={styles.heroSeloTexto}>
+                    Perfil {nivelAcesso.toUpperCase()}
+                  </Text>
+                </View>
+              </View>
+            </View>
+
+            <View
+              style={[
+                styles.identidadeCard,
+                desktop && styles.identidadeCardDesktop,
+              ]}
+            >
+              <View style={styles.identidadeTopo}>
+                <View style={styles.avatar}>
+                  <MaterialIcons
+                    name="person"
+                    size={29}
+                    color={C.azul}
+                  />
+                </View>
+                <View style={styles.identidadeTexto}>
+                  <Text style={styles.identidadeRotulo}>
+                    SERVIDOR AUTENTICADO
+                  </Text>
+                  <Text
+                    style={styles.identidadeNome}
+                    numberOfLines={2}
+                  >
+                    {nomeServidor}
+                  </Text>
+                  <Text style={styles.identidadeCargo}>
+                    {cargoServidor}
+                  </Text>
+                </View>
+                <MaterialIcons
+                  name="verified"
+                  size={22}
+                  color={C.verde}
+                />
               </View>
 
-              <View style={styles.infoRow}>
-                <MaterialIcons
-                  name="work"
-                  size={12}
-                  color="#FFCD00"
-                />
+              <View style={styles.identidadeDivisor} />
 
-                <Text style={styles.dadosServidor}>
-                  Cargo: {cargoServidor}
-                </Text>
-              </View>
-
-              <View style={styles.infoRow}>
-                <MaterialIcons
-                  name="business"
-                  size={12}
-                  color="#FFCD00"
-                />
-
-                <Text style={styles.dadosServidor}>
-                  Lotação: {uorgServidor}
-                </Text>
+              <View style={styles.identidadeDados}>
+                <View style={styles.identidadeLinha}>
+                  <MaterialIcons
+                    name="badge"
+                    size={16}
+                    color={C.secundario}
+                  />
+                  <Text style={styles.identidadeLinhaTexto}>
+                    Matrícula {matriculaServidor}
+                  </Text>
+                </View>
+                <View style={styles.identidadeLinha}>
+                  <MaterialIcons
+                    name="business"
+                    size={16}
+                    color={C.secundario}
+                  />
+                  <Text
+                    style={styles.identidadeLinhaTexto}
+                    numberOfLines={1}
+                  >
+                    {uorgServidor}
+                  </Text>
+                </View>
+                <View style={styles.identidadeLinha}>
+                  <MaterialIcons
+                    name="fingerprint"
+                    size={16}
+                    color={C.secundario}
+                  />
+                  <Text style={styles.identidadeLinhaTexto}>
+                    CPF {mascararCpf(cpfServidor)}
+                  </Text>
+                </View>
               </View>
             </View>
           </View>
-
-          <View style={styles.seloVerificacao}>
-            <MaterialIcons
-              name="verified"
-              size={14}
-              color="#FFCD00"
-            />
-
-            <Text style={styles.seloTexto}>
-              Perfil {nivelAcesso.toUpperCase()} • Sessão registrada
-            </Text>
-          </View>
         </View>
 
-        {/* NOTÍCIAS */}
-        <View style={styles.containerNoticia}>
-          <MaterialIcons
-            name="campaign"
-            size={20}
-            color="#B45309"
-            style={{ marginRight: 8 }}
-          />
-
-          <Text
-            style={styles.textoNoticia}
-            numberOfLines={2}
-          >
-            {NOTICIAS_API[indiceNoticia]}
-          </Text>
-        </View>
-
-        {/* RESUMO FINANCEIRO */}
-        <View style={styles.conteudoSessao}>
-          <Text style={styles.tituloSessao}>
-            Resumo Financeiro
-          </Text>
-
-          <View style={styles.cardFinanceiro}>
-            <View style={styles.cardFinHeader}>
-              <View>
-                <Text style={styles.cardFinLabel}>
-                  Último Salário Líquido
-                </Text>
-
-                <Text style={styles.cardFinMes}>
-                  {carregandoSalario
-                    ? 'Buscando...'
-                    : mesSalario
-                      ? `Referência: ${mesSalario}`
-                      : 'Dados indisponíveis'}
+        <View style={[styles.limite, styles.corpo]}>
+          <View style={styles.secaoCabecalho}>
+            <View>
+              <Text style={styles.secaoEyebrow}>PAINEL DO SERVIDOR</Text>
+              <Text style={styles.secaoTitulo}>Visão geral</Text>
+            </View>
+            {ultimaAtualizacao && !compacto && (
+              <View style={styles.atualizacao}>
+                <MaterialIcons
+                  name="sync"
+                  size={15}
+                  color={C.secundario}
+                />
+                <Text style={styles.atualizacaoTexto}>
+                  Atualizado às{' '}
+                  {ultimaAtualizacao.toLocaleTimeString('pt-BR', {
+                    hour: '2-digit',
+                    minute: '2-digit',
+                  })}
                 </Text>
               </View>
+            )}
+          </View>
 
+          <View style={styles.kpiGrid}>
+            <KpiCard
+              titulo="Serviços integrados"
+              valor={modulosVisiveis.length}
+              detalhe="módulos disponíveis"
+              icone="apps"
+              cor={C.azul}
+              desktop={desktop}
+            />
+            <KpiCard
+              titulo="Em andamento"
+              valor={carregandoResumo ? '—' : servicosEmAndamento}
+              detalhe="solicitações ativas"
+              icone="pending-actions"
+              cor={C.laranja}
+              desktop={desktop}
+            />
+            <KpiCard
+              titulo="Atualizações"
+              valor={carregandoResumo ? '—' : notificacoesNaoLidas}
+              detalhe="notificações não lidas"
+              icone="notifications-active"
+              cor={C.roxo}
+              desktop={desktop}
+            />
+            <KpiCard
+              titulo="Acesso"
+              valor={nivelAcesso.toUpperCase()}
+              detalhe={gestor ? 'perfil de gestão' : 'perfil de servidor'}
+              icone="shield"
+              cor={C.verde}
+              desktop={desktop}
+            />
+          </View>
+
+          <View style={styles.comunicado}>
+            <View style={styles.comunicadoIcone}>
               <MaterialIcons
-                name="account-balance-wallet"
-                size={28}
-                color="#FFFFFF"
+                name={comunicado.icone}
+                size={24}
+                color={C.azul}
               />
             </View>
-
-            <View style={styles.cardFinValorRow}>
-              {carregandoSalario ? (
-                <ActivityIndicator
-                  size="small"
-                  color="#F54927"
-                />
-              ) : (
-                <Text style={styles.cardFinValor}>
-                  {salarioVisivel && ultimoSalario !== null
-                    ? formatarMoeda(ultimoSalario)
-                    : 'R$ •••••••'}
+            <View style={styles.comunicadoConteudo}>
+              <View style={styles.comunicadoTopo}>
+                <Text style={styles.comunicadoRotulo}>
+                  COMUNICADO DO PORTAL
                 </Text>
-              )}
-
-              <TouchableOpacity
-                onPress={() =>
-                  setSalarioVisivel((visivelAtual) => !visivelAtual)
-                }
-                style={styles.btnVisibilidade}
-              >
-                <MaterialIcons
-                  name={
-                    salarioVisivel
-                      ? 'visibility'
-                      : 'visibility-off'
-                  }
-                  size={22}
-                  color="rgba(255,255,255,0.7)"
-                />
-              </TouchableOpacity>
+                <View style={styles.comunicadoDemo}>
+                  <Text style={styles.comunicadoDemoTexto}>
+                    DEMONSTRAÇÃO
+                  </Text>
+                </View>
+              </View>
+              <Text style={styles.comunicadoTitulo}>
+                {comunicado.titulo}
+              </Text>
+              <Text style={styles.comunicadoTexto}>
+                {comunicado.texto}
+              </Text>
             </View>
+            {!compacto && (
+              <View style={styles.comunicadoPaginacao}>
+                {COMUNICADOS.map((_, indice) => (
+                  <View
+                    key={indice}
+                    style={[
+                      styles.comunicadoPonto,
+                      indice === indiceComunicado &&
+                        styles.comunicadoPontoAtivo,
+                    ]}
+                  />
+                ))}
+              </View>
+            )}
           </View>
-        </View>
 
-        {/* MÓDULOS */}
-        <View style={styles.conteudoSessao}>
-          <Text style={styles.tituloSessao}>
-            Módulos Integrados
-          </Text>
-
-          <Text style={styles.subtitSessao}>
-            Acesse os sistemas administrativos abaixo:
-          </Text>
-
-          {modulosVisiveis.map((modulo) => (
-            <TouchableOpacity
-              key={modulo.id}
-              style={styles.cardGov}
-              activeOpacity={0.85}
-              onPress={() => abrirModulo(modulo)}
-            >
-              <View style={styles.cardIconeContainer}>
-                <MaterialIcons
-                  name={modulo.icone as any}
-                  size={22}
-                  color="#1351B4"
-                />
+          <View
+            style={[
+              styles.conteudoGrid,
+              desktop && styles.conteudoGridDesktop,
+            ]}
+          >
+            <View style={styles.modulosColuna}>
+              <View style={styles.secaoCabecalho}>
+                <View>
+                  <Text style={styles.secaoEyebrow}>
+                    ECOSSISTEMA INTEGRADO
+                  </Text>
+                  <Text style={styles.secaoTitulo}>
+                    Serviços e módulos
+                  </Text>
+                  <Text style={styles.secaoSubtitulo}>
+                    Selecione uma área para iniciar ou acompanhar um serviço.
+                  </Text>
+                </View>
               </View>
 
-              <View style={styles.cardTextoContainer}>
-                <View style={styles.cardLinhaSuperior}>
-                  <Text style={styles.cardTitulo}>
-                    {modulo.titulo}
-                  </Text>
+              <View style={styles.modulosGrid}>
+                {modulosVisiveis.map((modulo) => (
+                  <ModuloCard
+                    key={modulo.id}
+                    modulo={modulo}
+                    desktop={gridDesktop}
+                    onPress={() => abrirModulo(modulo)}
+                  />
+                ))}
+              </View>
+            </View>
 
-                  <View
-                    style={[
-                      styles.badgeGov,
-                      {
-                        backgroundColor: modulo.badgeCor,
-                      },
-                    ]}
-                  >
-                    <Text style={styles.badgeTexto}>
-                      {modulo.badge}
+            <View
+              style={[
+                styles.lateral,
+                desktop && styles.lateralDesktop,
+              ]}
+            >
+              <View style={styles.financeiroCard}>
+                <View style={styles.financeiroDecoracao} />
+                <View style={styles.financeiroTopo}>
+                  <View>
+                    <Text style={styles.financeiroRotulo}>
+                      RESUMO FINANCEIRO
                     </Text>
+                    <Text style={styles.financeiroTitulo}>
+                      Último rendimento líquido
+                    </Text>
+                  </View>
+                  <View style={styles.financeiroIcone}>
+                    <MaterialIcons
+                      name="account-balance-wallet"
+                      size={23}
+                      color={C.amarelo}
+                    />
                   </View>
                 </View>
 
-                <Text style={styles.cardSubtitulo}>
-                  {modulo.subtitulo}
+                <Text style={styles.financeiroMes}>
+                  {carregandoResumo
+                    ? 'Consultando dados...'
+                    : mesSalario
+                      ? 'Referência: ' + mesSalario
+                      : 'Referência indisponível'}
                 </Text>
+
+                <View style={styles.financeiroValorLinha}>
+                  {carregandoResumo ? (
+                    <ActivityIndicator
+                      size="small"
+                      color={C.amarelo}
+                    />
+                  ) : (
+                    <Text style={styles.financeiroValor}>
+                      {salarioVisivel && ultimoSalario !== null
+                        ? formatarMoeda(ultimoSalario)
+                        : 'R$ •••••••'}
+                    </Text>
+                  )}
+                  <TouchableOpacity
+                    style={styles.visibilidadeBotao}
+                    onPress={() =>
+                      setSalarioVisivel((atual) => !atual)
+                    }
+                  >
+                    <MaterialIcons
+                      name={
+                        salarioVisivel
+                          ? 'visibility'
+                          : 'visibility-off'
+                      }
+                      size={21}
+                      color="rgba(255,255,255,0.72)"
+                    />
+                  </TouchableOpacity>
+                </View>
+
+                <TouchableOpacity
+                  style={styles.financeiroAcao}
+                  onPress={abrirFinanceiro}
+                >
+                  <Text style={styles.financeiroAcaoTexto}>
+                    Consultar no SDGP
+                  </Text>
+                  <MaterialIcons
+                    name="arrow-forward"
+                    size={17}
+                    color={C.azulEscuro}
+                  />
+                </TouchableOpacity>
               </View>
 
-              <MaterialIcons
-                name="chevron-right"
-                size={22}
-                color="#1351B4"
-              />
-            </TouchableOpacity>
-          ))}
-        </View>
+              <View style={styles.plataformaCard}>
+                <View style={styles.plataformaCabecalho}>
+                  <View style={styles.plataformaIcone}>
+                    <MaterialIcons
+                      name="verified-user"
+                      size={22}
+                      color={C.verde}
+                    />
+                  </View>
+                  <View style={styles.flex}>
+                    <Text style={styles.plataformaTitulo}>
+                      Plataforma integrada
+                    </Text>
+                    <Text style={styles.plataformaSubtitulo}>
+                      Estado operacional do protótipo
+                    </Text>
+                  </View>
+                  <View style={styles.onlineBadge}>
+                    <View style={styles.onlinePonto} />
+                    <Text style={styles.onlineTexto}>ONLINE</Text>
+                  </View>
+                </View>
 
-        <View style={styles.rodapeGov}>
-          <Text style={styles.rodapeTexto}>
-            © 2026 Secretaria de Administração e Gestão Digital
-          </Text>
+                <View style={styles.plataformaLista}>
+                  <LinhaPlataforma
+                    icone="lock"
+                    titulo="Sessão protegida"
+                    texto="Validação por token temporário"
+                  />
+                  <LinhaPlataforma
+                    icone="sync"
+                    titulo="Dados sincronizados"
+                    texto="Integração em tempo real com Supabase"
+                  />
+                  <LinhaPlataforma
+                    icone="devices"
+                    titulo="Multiplataforma"
+                    texto="Web responsiva e aplicativo Android"
+                  />
+                </View>
+              </View>
+            </View>
+          </View>
 
-          <Text style={styles.rodapeSub}>
-            Portal N2 • Dados rastreáveis e serviços integrados
-          </Text>
+          <View style={styles.rodape}>
+            <View style={styles.rodapeMarca}>
+              <Text style={styles.rodapeGov}>
+                gov<Text style={{ color: C.azul }}>.</Text>br
+              </Text>
+              <View style={styles.rodapeDivisor} />
+              <Text style={styles.rodapePortal}>
+                Portal Integrado N2
+              </Text>
+            </View>
+            <Text style={styles.rodapeTexto}>
+              Protótipo acadêmico • Ambiente demonstrativo • 2026
+            </Text>
+            <Text style={styles.rodapeSubtexto}>
+              Serviços digitais, gestão integrada e decisões rastreáveis.
+            </Text>
+          </View>
         </View>
       </ScrollView>
     </SafeAreaView>
   );
 }
 
+function LinhaPlataforma({
+  icone,
+  titulo,
+  texto,
+}: {
+  icone: Icone;
+  titulo: string;
+  texto: string;
+}) {
+  return (
+    <View style={styles.plataformaLinha}>
+      <View style={styles.plataformaLinhaIcone}>
+        <MaterialIcons name={icone} size={17} color={C.azul} />
+      </View>
+      <View style={styles.flex}>
+        <Text style={styles.plataformaLinhaTitulo}>{titulo}</Text>
+        <Text style={styles.plataformaLinhaTexto}>{texto}</Text>
+      </View>
+      <MaterialIcons
+        name="check-circle"
+        size={18}
+        color={C.verde}
+      />
+    </View>
+  );
+}
+
 const styles = StyleSheet.create({
   safe: {
     flex: 1,
-    backgroundColor: '#1351B4',
+    backgroundColor: C.azul,
   },
-
+  flex: {
+    flex: 1,
+  },
   scroll: {
     flex: 1,
-    backgroundColor: '#F8F9FA',
+    backgroundColor: C.fundo,
   },
-
   scrollContent: {
-    paddingBottom: 40,
+    paddingBottom: 20,
   },
-
+  limite: {
+    width: '100%',
+    maxWidth: 1160,
+    alignSelf: 'center',
+  },
+  loadingPagina: {
+    flex: 1,
+    backgroundColor: C.azulEscuro,
+    alignItems: 'center',
+    justifyContent: 'center',
+    padding: 24,
+  },
+  loadingMarca: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 30,
+  },
+  loadingGov: {
+    color: C.branco,
+    fontSize: 28,
+    fontWeight: '900',
+    letterSpacing: -0.8,
+  },
+  pontoAmarelo: {
+    color: C.amarelo,
+  },
+  loadingDivisor: {
+    width: 1,
+    height: 24,
+    backgroundColor: 'rgba(255,255,255,0.24)',
+    marginHorizontal: 13,
+  },
+  loadingPortal: {
+    color: C.branco,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  loadingTexto: {
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    marginTop: 14,
+  },
   govBar: {
-    height: 60,
-    backgroundColor: '#1351B4',
+    minHeight: 68,
+    backgroundColor: C.azul,
+    paddingHorizontal: 18,
+    paddingVertical: 9,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingHorizontal: 16,
     borderBottomWidth: 1,
-    borderColor: 'rgba(255,255,255,0.1)',
+    borderBottomColor: 'rgba(255,255,255,0.12)',
+    elevation: 5,
+    zIndex: 10,
   },
-
-  logoContainer: {
+  marca: {
     flexDirection: 'row',
     alignItems: 'center',
+    flexShrink: 1,
   },
-
   govText: {
-    fontSize: 24,
+    color: C.branco,
+    fontSize: 25,
     fontWeight: '900',
-    color: '#FFFFFF',
-    letterSpacing: -0.5,
+    letterSpacing: -0.7,
   },
-
-  separadorVertical: {
+  marcaDivisor: {
     width: 1,
-    height: 20,
-    backgroundColor: 'rgba(255,255,255,0.3)',
+    height: 28,
+    backgroundColor: 'rgba(255,255,255,0.25)',
     marginHorizontal: 12,
   },
-
-  subTituloGov: {
+  marcaPortal: {
+    color: C.branco,
     fontSize: 13,
-    color: 'rgba(255,255,255,0.85)',
-    fontWeight: '500',
+    fontWeight: '800',
   },
-
-  acessibilidadeContainer: {
-    width: 34,
-    height: 34,
-    borderRadius: 17,
+  marcaOrgao: {
+    color: 'rgba(255,255,255,0.68)',
+    fontSize: 9,
+    marginTop: 1,
+  },
+  govAcoes: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  demoBadge: {
+    height: 30,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    paddingHorizontal: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 6,
+  },
+  demoPonto: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    backgroundColor: C.amarelo,
+  },
+  demoTexto: {
+    color: C.branco,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.5,
+  },
+  notificacaoBotao: {
+    width: 39,
+    height: 39,
+    borderRadius: 20,
     backgroundColor: 'rgba(255,255,255,0.12)',
     alignItems: 'center',
     justifyContent: 'center',
   },
-
-  contadorNotificacao: {
+  notificacaoContador: {
     position: 'absolute',
-    top: 2,
-    right: 1,
+    top: 1,
+    right: 0,
     minWidth: 16,
     height: 16,
     borderRadius: 8,
     paddingHorizontal: 3,
-    backgroundColor: '#D32F2F',
+    backgroundColor: C.vermelho,
     alignItems: 'center',
     justifyContent: 'center',
+    borderWidth: 1.5,
+    borderColor: C.azul,
   },
-
-  contadorNotificacaoTexto: {
-    color: '#FFFFFF',
-    fontSize: 9,
+  notificacaoContadorTexto: {
+    color: C.branco,
+    fontSize: 8,
     fontWeight: '900',
   },
-
-  painelUsuario: {
-    backgroundColor: '#0C3789',
-    padding: 20,
-    borderBottomLeftRadius: 20,
-    borderBottomRightRadius: 20,
+  heroFundo: {
+    backgroundColor: C.azulEscuro,
+    overflow: 'hidden',
+    position: 'relative',
   },
-
-  usuarioHeader: {
+  heroCirculoUm: {
+    position: 'absolute',
+    width: 360,
+    height: 360,
+    borderRadius: 180,
+    backgroundColor: 'rgba(19,81,180,0.28)',
+    top: -210,
+    right: -70,
+  },
+  heroCirculoDois: {
+    position: 'absolute',
+    width: 240,
+    height: 240,
+    borderRadius: 120,
+    borderWidth: 44,
+    borderColor: 'rgba(255,255,255,0.035)',
+    bottom: -150,
+    left: -80,
+  },
+  hero: {
+    paddingHorizontal: 18,
+    paddingTop: 28,
+    paddingBottom: 30,
+  },
+  heroDesktop: {
+    minHeight: 360,
     flexDirection: 'row',
     alignItems: 'center',
+    gap: 46,
+    paddingHorizontal: 24,
+    paddingVertical: 42,
   },
-
-  avatarCirculo: {
-    width: 56,
-    height: 56,
-    borderRadius: 28,
-    backgroundColor: '#FFFFFF',
-    alignItems: 'center',
-    justifyContent: 'center',
-    marginRight: 14,
-  },
-
-  usuarioInfo: {
+  heroPrincipal: {
     flex: 1,
-    gap: 2,
   },
-
-  nomeServidor: {
-    fontSize: 18,
-    fontWeight: '800',
-    color: '#FFFFFF',
-    letterSpacing: 0.3,
-    marginBottom: 4,
-  },
-
-  infoRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 6,
-  },
-
-  dadosServidor: {
-    fontSize: 11,
-    color: 'rgba(255,255,255,0.85)',
-  },
-
-  seloVerificacao: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    backgroundColor: 'rgba(255,255,255,0.15)',
+  heroEyebrow: {
     alignSelf: 'flex-start',
-    paddingHorizontal: 10,
-    paddingVertical: 4,
-    borderRadius: 12,
-    marginTop: 14,
-    gap: 6,
-  },
-
-  seloTexto: {
-    color: '#FFFFFF',
-    fontSize: 10,
-    fontWeight: 'bold',
-  },
-
-  containerNoticia: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: '#FFFBEB',
-    marginHorizontal: 16,
-    marginTop: 16,
-    padding: 12,
-    borderRadius: 8,
-    borderWidth: 1,
-    borderColor: '#FDE68A',
-  },
-
-  textoNoticia: {
-    flex: 1,
-    fontSize: 12,
-    color: '#B45309',
-    fontWeight: '600',
-    lineHeight: 18,
-  },
-
-  conteudoSessao: {
-    paddingHorizontal: 16,
-    marginTop: 24,
-  },
-
-  tituloSessao: {
-    fontSize: 17,
-    fontWeight: '800',
-    color: '#1A1A1A',
-    marginBottom: 4,
-  },
-
-  subtitSessao: {
-    fontSize: 12,
-    color: '#555A60',
-    marginBottom: 16,
-  },
-
-  cardFinanceiro: {
-    backgroundColor: '#1351B4',
-    borderRadius: 12,
-    padding: 16,
-    elevation: 4,
-    shadowColor: '#000',
-    shadowOffset: {
-      width: 0,
-      height: 2,
-    },
-    shadowOpacity: 0.2,
-    shadowRadius: 4,
-  },
-
-  cardFinHeader: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    gap: 7,
+    backgroundColor: 'rgba(255,255,255,0.08)',
+    borderRadius: 17,
+    paddingHorizontal: 11,
+    paddingVertical: 6,
     marginBottom: 15,
   },
-
-  cardFinLabel: {
-    fontSize: 14,
+  heroEyebrowTexto: {
+    color: C.branco,
+    fontSize: 11,
     fontWeight: '700',
-    color: '#FFFFFF',
   },
-
-  cardFinMes: {
-    fontSize: 12,
-    color: 'rgba(255,255,255,0.8)',
-    marginTop: 2,
-  },
-
-  cardFinValorRow: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    justifyContent: 'space-between',
-    borderTopWidth: 1,
-    borderColor: 'rgba(255,255,255,0.2)',
-    paddingTop: 12,
-  },
-
-  cardFinValor: {
-    fontSize: 24,
+  heroTitulo: {
+    color: C.branco,
+    fontSize: 30,
+    lineHeight: 37,
     fontWeight: '900',
-    color: '#FFFFFF',
+    letterSpacing: -0.8,
   },
-
-  btnVisibilidade: {
-    padding: 4,
+  heroTituloDestaque: {
+    color: C.amarelo,
   },
-
-  cardGov: {
-    backgroundColor: '#FFFFFF',
-    borderRadius: 12,
-    padding: 16,
+  heroDescricao: {
+    maxWidth: 610,
+    color: 'rgba(255,255,255,0.72)',
+    fontSize: 13,
+    lineHeight: 20,
+    marginTop: 13,
+  },
+  heroSelos: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginTop: 18,
+  },
+  heroSelo: {
     flexDirection: 'row',
     alignItems: 'center',
-    marginBottom: 12,
-    borderWidth: 1,
-    borderColor: '#E0E0E0',
-  },
-
-  cardIconeContainer: {
-    width: 42,
-    height: 42,
+    gap: 6,
+    paddingHorizontal: 10,
+    paddingVertical: 6,
     borderRadius: 8,
-    backgroundColor: '#F0F4FA',
+    borderWidth: 1,
+    borderColor: 'rgba(255,255,255,0.16)',
+  },
+  heroSeloTexto: {
+    color: C.branco,
+    fontSize: 10,
+    fontWeight: '700',
+  },
+  identidadeCard: {
+    width: '100%',
+    backgroundColor: C.branco,
+    borderRadius: 15,
+    padding: 16,
+    marginTop: 24,
+    shadowColor: '#000000',
+    shadowOpacity: 0.22,
+    shadowRadius: 14,
+    shadowOffset: { width: 0, height: 7 },
+    elevation: 6,
+  },
+  identidadeCardDesktop: {
+    width: 370,
+    marginTop: 0,
+  },
+  identidadeTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  avatar: {
+    width: 52,
+    height: 52,
+    borderRadius: 26,
+    backgroundColor: C.azulClaro,
     alignItems: 'center',
     justifyContent: 'center',
-    marginRight: 14,
   },
-
-  cardTextoContainer: {
+  identidadeTexto: {
     flex: 1,
+    marginHorizontal: 11,
   },
-
-  cardLinhaSuperior: {
+  identidadeRotulo: {
+    color: C.azul,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.6,
+  },
+  identidadeNome: {
+    color: C.texto,
+    fontSize: 15,
+    fontWeight: '900',
+    marginTop: 2,
+  },
+  identidadeCargo: {
+    color: C.secundario,
+    fontSize: 10,
+    marginTop: 2,
+  },
+  identidadeDivisor: {
+    height: 1,
+    backgroundColor: C.borda,
+    marginVertical: 13,
+  },
+  identidadeDados: {
+    gap: 8,
+  },
+  identidadeLinha: {
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    marginBottom: 2,
   },
-
-  cardTitulo: {
-    fontSize: 14,
-    fontWeight: '700',
-    color: '#1A1A1A',
-  },
-
-  cardSubtitulo: {
+  identidadeLinhaTexto: {
+    flex: 1,
+    color: C.secundario,
     fontSize: 11,
-    color: '#555A60',
   },
-
-  badgeGov: {
-    paddingHorizontal: 6,
-    paddingVertical: 2,
-    borderRadius: 4,
+  corpo: {
+    paddingHorizontal: 16,
+    paddingTop: 25,
   },
-
-  badgeTexto: {
-    color: '#FFFFFF',
+  secaoCabecalho: {
+    flexDirection: 'row',
+    alignItems: 'flex-end',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  secaoEyebrow: {
+    color: C.azul,
     fontSize: 9,
-    fontWeight: 'bold',
+    fontWeight: '900',
+    letterSpacing: 0.9,
+    marginBottom: 3,
   },
-
-  rodapeGov: {
-    marginTop: 30,
-    alignItems: 'center',
-    paddingHorizontal: 24,
-    paddingBottom: 20,
+  secaoTitulo: {
+    color: C.azulEscuro,
+    fontSize: 20,
+    fontWeight: '900',
+    letterSpacing: -0.3,
   },
-
-  rodapeTexto: {
-    fontSize: 10,
-    color: '#555A60',
-    textAlign: 'center',
-    fontWeight: '500',
-  },
-
-  rodapeSub: {
-    fontSize: 9,
-    color: '#9E9E9E',
-    textAlign: 'center',
+  secaoSubtitulo: {
+    color: C.secundario,
+    fontSize: 12,
+    lineHeight: 17,
     marginTop: 4,
+  },
+  atualizacao: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  atualizacaoTexto: {
+    color: C.secundario,
+    fontSize: 10,
+  },
+  kpiGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 10,
+    marginBottom: 18,
+  },
+  kpiCard: {
+    backgroundColor: C.branco,
+    borderWidth: 1,
+    borderColor: C.borda,
+    borderRadius: 13,
+    padding: 13,
+  },
+  kpiDesktop: {
+    width: '24%',
+    flex: 1,
+  },
+  kpiMobile: {
+    width: '48%',
+    flexGrow: 1,
+  },
+  kpiTopo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 10,
+  },
+  kpiIcone: {
+    width: 36,
+    height: 36,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  kpiPonto: {
+    width: 6,
+    height: 6,
+    borderRadius: 3,
+    marginTop: 2,
+  },
+  kpiValor: {
+    color: C.texto,
+    fontSize: 21,
+    fontWeight: '900',
+  },
+  kpiTitulo: {
+    color: C.texto,
+    fontSize: 11,
+    fontWeight: '800',
+    marginTop: 3,
+  },
+  kpiDetalhe: {
+    color: C.secundario,
+    fontSize: 9,
+    marginTop: 2,
+  },
+  comunicado: {
+    backgroundColor: C.branco,
+    borderWidth: 1,
+    borderColor: '#BFDBFE',
+    borderLeftWidth: 4,
+    borderLeftColor: C.azul,
+    borderRadius: 13,
+    padding: 14,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    marginBottom: 27,
+  },
+  comunicadoIcone: {
+    width: 47,
+    height: 47,
+    borderRadius: 12,
+    backgroundColor: C.azulClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  comunicadoConteudo: {
+    flex: 1,
+  },
+  comunicadoTopo: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 7,
+    marginBottom: 3,
+  },
+  comunicadoRotulo: {
+    color: C.azul,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
+  comunicadoDemo: {
+    backgroundColor: '#FFF7ED',
+    borderRadius: 4,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+  },
+  comunicadoDemoTexto: {
+    color: C.laranja,
+    fontSize: 7,
+    fontWeight: '900',
+  },
+  comunicadoTitulo: {
+    color: C.texto,
+    fontSize: 13,
+    fontWeight: '900',
+  },
+  comunicadoTexto: {
+    color: C.secundario,
+    fontSize: 10,
+    lineHeight: 15,
+    marginTop: 2,
+  },
+  comunicadoPaginacao: {
+    flexDirection: 'row',
+    gap: 4,
+    paddingHorizontal: 3,
+  },
+  comunicadoPonto: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: C.borda,
+  },
+  comunicadoPontoAtivo: {
+    width: 13,
+    backgroundColor: C.azul,
+  },
+  conteudoGrid: {
+    width: '100%',
+  },
+  conteudoGridDesktop: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    gap: 20,
+  },
+  modulosColuna: {
+    flex: 1,
+    minWidth: 0,
+  },
+  modulosGrid: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 12,
+  },
+  moduloCard: {
+    width: '100%',
+    minHeight: 235,
+    backgroundColor: C.branco,
+    borderWidth: 1,
+    borderColor: C.borda,
+    borderRadius: 14,
+    padding: 16,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  moduloCardDesktop: {
+    width: '48.8%',
+  },
+  moduloFaixa: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    height: 3,
+  },
+  moduloTopo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+    marginBottom: 17,
+  },
+  moduloIcone: {
+    width: 52,
+    height: 52,
+    borderRadius: 13,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  moduloBadge: {
+    borderRadius: 15,
+    paddingHorizontal: 8,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+  },
+  moduloBadgePonto: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+  },
+  moduloBadgeTexto: {
+    fontSize: 8,
+    fontWeight: '900',
+  },
+  moduloSubtitulo: {
+    color: C.secundario,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.7,
+  },
+  moduloTitulo: {
+    color: C.texto,
+    fontSize: 17,
+    fontWeight: '900',
+    marginTop: 4,
+  },
+  moduloDescricao: {
+    flex: 1,
+    color: C.secundario,
+    fontSize: 11,
+    lineHeight: 17,
+    marginTop: 8,
+  },
+  moduloRodape: {
+    borderTopWidth: 1,
+    borderTopColor: C.borda,
+    paddingTop: 12,
+    marginTop: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  moduloAcessar: {
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  moduloSeta: {
+    width: 30,
+    height: 30,
+    borderRadius: 15,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  lateral: {
+    width: '100%',
+    marginTop: 24,
+    gap: 14,
+  },
+  lateralDesktop: {
+    width: 340,
+    marginTop: 0,
+  },
+  financeiroCard: {
+    backgroundColor: C.azulEscuro,
+    borderRadius: 15,
+    padding: 17,
+    overflow: 'hidden',
+    position: 'relative',
+  },
+  financeiroDecoracao: {
+    position: 'absolute',
+    width: 150,
+    height: 150,
+    borderRadius: 75,
+    backgroundColor: 'rgba(19,81,180,0.32)',
+    top: -85,
+    right: -45,
+  },
+  financeiroTopo: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    justifyContent: 'space-between',
+  },
+  financeiroRotulo: {
+    color: C.amarelo,
+    fontSize: 8,
+    fontWeight: '900',
+    letterSpacing: 0.8,
+  },
+  financeiroTitulo: {
+    color: C.branco,
+    fontSize: 13,
+    fontWeight: '800',
+    marginTop: 4,
+  },
+  financeiroIcone: {
+    width: 40,
+    height: 40,
+    borderRadius: 11,
+    backgroundColor: 'rgba(255,255,255,0.10)',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  financeiroMes: {
+    color: 'rgba(255,255,255,0.62)',
+    fontSize: 10,
+    marginTop: 15,
+  },
+  financeiroValorLinha: {
+    minHeight: 48,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  financeiroValor: {
+    color: C.branco,
+    fontSize: 25,
+    fontWeight: '900',
+    letterSpacing: -0.4,
+  },
+  visibilidadeBotao: {
+    padding: 6,
+  },
+  financeiroAcao: {
+    minHeight: 42,
+    borderRadius: 9,
+    backgroundColor: C.amarelo,
+    paddingHorizontal: 13,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginTop: 10,
+  },
+  financeiroAcaoTexto: {
+    color: C.azulEscuro,
+    fontSize: 11,
+    fontWeight: '900',
+  },
+  plataformaCard: {
+    backgroundColor: C.branco,
+    borderRadius: 15,
+    borderWidth: 1,
+    borderColor: C.borda,
+    padding: 15,
+  },
+  plataformaCabecalho: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+  },
+  plataformaIcone: {
+    width: 41,
+    height: 41,
+    borderRadius: 11,
+    backgroundColor: '#ECFDF5',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plataformaTitulo: {
+    color: C.texto,
+    fontSize: 12,
+    fontWeight: '900',
+  },
+  plataformaSubtitulo: {
+    color: C.secundario,
+    fontSize: 9,
+    marginTop: 2,
+  },
+  onlineBadge: {
+    borderRadius: 12,
+    backgroundColor: '#ECFDF5',
+    paddingHorizontal: 7,
+    paddingVertical: 5,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 4,
+  },
+  onlinePonto: {
+    width: 5,
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: C.verde,
+  },
+  onlineTexto: {
+    color: C.verde,
+    fontSize: 7,
+    fontWeight: '900',
+  },
+  plataformaLista: {
+    borderTopWidth: 1,
+    borderTopColor: C.borda,
+    marginTop: 14,
+    paddingTop: 5,
+  },
+  plataformaLinha: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 9,
+    paddingVertical: 9,
+  },
+  plataformaLinhaIcone: {
+    width: 31,
+    height: 31,
+    borderRadius: 9,
+    backgroundColor: C.azulClaro,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  plataformaLinhaTitulo: {
+    color: C.texto,
+    fontSize: 10,
+    fontWeight: '800',
+  },
+  plataformaLinhaTexto: {
+    color: C.secundario,
+    fontSize: 8,
+    marginTop: 2,
+  },
+  rodape: {
+    alignItems: 'center',
+    borderTopWidth: 1,
+    borderTopColor: C.borda,
+    marginTop: 35,
+    paddingTop: 25,
+    paddingBottom: 28,
+  },
+  rodapeMarca: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  rodapeGov: {
+    color: C.azulEscuro,
+    fontSize: 18,
+    fontWeight: '900',
+    letterSpacing: -0.5,
+  },
+  rodapeDivisor: {
+    width: 1,
+    height: 17,
+    backgroundColor: C.borda,
+    marginHorizontal: 10,
+  },
+  rodapePortal: {
+    color: C.texto,
+    fontSize: 11,
+    fontWeight: '800',
+  },
+  rodapeTexto: {
+    color: C.secundario,
+    fontSize: 9,
+    textAlign: 'center',
+    marginTop: 9,
+  },
+  rodapeSubtexto: {
+    color: '#94A3B8',
+    fontSize: 8,
+    textAlign: 'center',
+    marginTop: 3,
   },
 });
